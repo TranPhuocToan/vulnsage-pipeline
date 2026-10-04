@@ -1,0 +1,18 @@
+Bạn là chuyên gia bảo mật cấp cao. Bạn nhận được báo cáo phân tích cục bộ từ {num_files} tệp trong bản vá (CVE: {cve_id}, CWE: {cwe_id}).
+
+CÁC BÁO CÁO PHÂN TÍCH CỤC BỘ:
+{local_analyses_text}
+
+TỔNG HỢP (Hierarchical Merging):
+1. Tổng hợp bức tranh tổng thể của bản vá
+2. Đánh giá tính nhất quán giữa các thay đổi ở các tệp khác nhau
+3. Quyết định: Bản vá tổng thể có khắc phục được lỗ hổng {cwe_id} không?
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
+{
+  "global_synthesis": "Tổng hợp chi tiết...",
+  "cross_file_consistency": "Đánh giá tính nhất quán giữa các tệp",
+  "verdict": "PATCHED" | "NOT_PATCHED" | "NOT_SURE",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "reasoning": "Lý do ngắn gọn"
+}

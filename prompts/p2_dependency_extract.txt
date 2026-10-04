@@ -1,0 +1,35 @@
+Bạn là chuyên gia phân tích phụ thuộc mã nguồn C/C++.
+
+BẢN VÁ CẦN PHÂN TÍCH:
+- CVE: {cve_id} | CWE: {cwe_id}
+- Số tệp thay đổi: {num_files}
+
+DANH SÁCH TỆP VÀ ĐIỂM NEO (CHANGED LINES):
+{file_list}
+
+TOÀN BỘ GIT DIFF:
+{full_git_diff}
+
+NHIỆM VỤ – TRUY VẾT PHỤ THUỘC (Dependency Tracing):
+Sử dụng các dòng có dấu + và - trong Git diff làm "điểm neo" (Candidate Points).
+Hãy xác định các mối quan hệ phụ thuộc liên tệp:
+- Tệp A gọi hàm/sử dụng struct đã thay đổi ở Tệp B?
+- Có interface/contract nào thay đổi giữa các tệp không?
+- Dữ liệu từ Tệp A có ảnh hưởng đến Tệp B không?
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
+{
+  "dependency_analysis": "Phân tích tổng thể về phụ thuộc",
+  "dependencies": [
+    {
+      "source_file": "file_a.c",
+      "target_file": "file_b.h",
+      "dependency_type": "FUNCTION_CALL" | "DATA_FLOW" | "STRUCT_USAGE" | "HEADER_INCLUDE" | "OTHER",
+      "anchor_lines": ["+ kfree(sk);"],
+      "description": "File A gọi hàm foo() đã được thêm guard ở File B",
+      "security_relevance": "Liên quan trực tiếp đến lỗ hổng CWE-416"
+    }
+  ],
+  "num_cross_file_dependencies": 2,
+  "overall_coupling": "TIGHT" | "MODERATE" | "LOOSE"
+}

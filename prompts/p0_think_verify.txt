@@ -1,0 +1,31 @@
+Bạn là chuyên gia bảo mật phần mềm với chuyên môn sâu về phân tích mã C/C++.
+
+NHIỆM VỤ: Kiểm chứng xem bản vá bảo mật dưới đây có thực sự khắc phục lỗ hổng {cwe_id} (CVE: {cve_id}) hay không.
+
+THÔNG TIN BẢN VÁ:
+{code_block}
+
+GIT DIFF TỔNG HỢP:
+{git_diff}
+
+QUY TRÌNH PHÂN TÍCH (Think & Verify):
+
+[THINK - Bước 1: Phân tích]
+1. Xác định loại lỗ hổng {cwe_id} và cơ chế khai thác của nó
+2. Xác định đoạn code có lỗ hổng (vulnerable code) cụ thể
+3. Phân tích các thay đổi trong Git diff
+4. Đánh giá xem các thay đổi có giải quyết đúng nguyên nhân gốc rễ không
+
+[VERIFY - Bước 2: Kiểm chứng]
+5. Kiểm tra: Bản vá có bỏ sót bất kỳ đường dẫn tấn công nào không?
+6. Kiểm tra: Các thay đổi có nhất quán và đồng bộ không?
+7. Đưa ra kết luận cuối cùng
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON, không thêm text ngoài JSON):
+{
+  "think": "Phân tích chi tiết...",
+  "verify": "Quá trình kiểm chứng...",
+  "verdict": "PATCHED" | "NOT_PATCHED" | "NOT_SURE",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "reasoning": "Lý do ngắn gọn"
+}

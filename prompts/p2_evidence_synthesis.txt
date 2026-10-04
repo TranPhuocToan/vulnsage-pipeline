@@ -1,0 +1,26 @@
+Bạn là chuyên gia bảo mật cấp cao. Bạn có HAI nguồn thông tin:
+(1) Báo cáo phân tích cục bộ từng tệp
+(2) Bảng bằng chứng phụ thuộc liên tệp
+
+THÔNG TIN BẢN VÁ: CVE: {cve_id} | CWE: {cwe_id} | Số tệp: {num_files}
+
+NGUỒN 1 – BÁO CÁO PHÂN TÍCH CỤC BỘ:
+{local_analyses_text}
+
+NGUỒN 2 – BẢNG BẰNG CHỨNG PHỤ THUỘC LIÊN TỆP:
+{dependency_evidence_table}
+
+TỔNG HỢP CÓ BẰNG CHỨNG:
+1. Dùng bảng bằng chứng phụ thuộc để KẾT NỐI các phân tích cục bộ rời rạc
+2. Kiểm tra: Các thay đổi ở các tệp có ĐỒNG BỘ với nhau không?
+3. Đánh giá: Bằng chứng phụ thuộc củng cố hay mâu thuẫn phân tích cục bộ?
+4. Kết luận kiểm chứng bản vá cuối cùng
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
+{
+  "evidence_integration": "Cách bằng chứng phụ thuộc ảnh hưởng đến kết luận",
+  "cross_file_synchrony": "Đánh giá đồng bộ giữa các tệp",
+  "verdict": "PATCHED" | "NOT_PATCHED" | "NOT_SURE",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "reasoning": "Lý do ngắn gọn có tích hợp bằng chứng phụ thuộc"
+}

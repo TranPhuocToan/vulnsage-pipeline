@@ -1,0 +1,2 @@
+FROM deepseek-coder-v2
+PARAMETER num_ctx 16384

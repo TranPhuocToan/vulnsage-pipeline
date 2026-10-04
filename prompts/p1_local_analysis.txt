@@ -1,0 +1,32 @@
+Bạn là chuyên gia bảo mật C/C++. Bạn đang phân tích MỘT TỆP trong bản vá đa tệp.
+
+THÔNG TIN TỆP:
+- Tên tệp: {file_name}
+- Vị trí: Tệp {file_index} / {total_files}
+- CVE: {cve_id} | CWE: {cwe_id}
+
+MÃ DỄ TỔN THƯƠNG (VULNERABLE CODE):
+{vulnerable_code}
+
+MÃ ĐÃ VÁ (PATCHED CODE):
+{patched_code}
+
+THAY ĐỔI (GIT DIFF):
+{git_diff}
+
+PHÂN TÍCH ĐỘC LẬP CHO TỆP NÀY:
+1. Mô tả chức năng của tệp này
+2. Các thay đổi cụ thể trong tệp này là gì?
+3. Những thay đổi này có mục đích gì về mặt bảo mật?
+4. Đánh giá cục bộ: Các thay đổi có góp phần vá lỗ hổng không?
+
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
+{
+  "file_name": "{file_name}",
+  "function_summary": "Mô tả vai trò tệp",
+  "changes_summary": "Tóm tắt thay đổi",
+  "security_purpose": "Mục đích bảo mật",
+  "local_verdict": "CONTRIBUTES_TO_FIX" | "NOT_RELATED" | "UNCLEAR",
+  "confidence": "HIGH" | "MEDIUM" | "LOW",
+  "key_observations": ["Quan sát 1", "Quan sát 2"]
+}
