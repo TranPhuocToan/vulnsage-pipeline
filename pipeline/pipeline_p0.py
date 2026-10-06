@@ -127,12 +127,11 @@ def process_single_sample_p0(sample: Dict[str, Any]) -> Dict[str, Any]:
     full_code_block: str = build_full_context_block(sample)
 
     # Format prompt P0
-    prompt: str = THINK_VERIFY_PROMPT.format(
-        cve_id=sample["cve_id"],
-        cwe_id=sample["cwe_id"],
-        code_block=full_code_block,
-        git_diff=sample.get("full_git_diff", ""),
-    )
+    prompt: str = THINK_VERIFY_PROMPT
+    prompt = prompt.replace("{cve_id}", str(sample.get("cve_id", "")))
+    prompt = prompt.replace("{cwe_id}", str(sample.get("cwe_id", "")))
+    prompt = prompt.replace("{code_block}", full_code_block)
+    prompt = prompt.replace("{git_diff}", sample.get("full_git_diff", ""))
 
     # Gọi LLM với retry (Invariant I5)
     start_time: float = time.time()

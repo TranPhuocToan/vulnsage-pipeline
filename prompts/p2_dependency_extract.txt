@@ -18,18 +18,18 @@ Hãy xác định các mối quan hệ phụ thuộc liên tệp:
 - Dữ liệu từ Tệp A có ảnh hưởng đến Tệp B không?
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
-{
+{{
   "dependency_analysis": "Phân tích tổng thể về phụ thuộc",
   "dependencies": [
-    {
+    {{
       "source_file": "file_a.c",
       "target_file": "file_b.h",
       "dependency_type": "FUNCTION_CALL" | "DATA_FLOW" | "STRUCT_USAGE" | "HEADER_INCLUDE" | "OTHER",
       "anchor_lines": ["+ kfree(sk);"],
       "description": "File A gọi hàm foo() đã được thêm guard ở File B",
       "security_relevance": "Liên quan trực tiếp đến lỗ hổng CWE-416"
-    }
+    }}
   ],
   "num_cross_file_dependencies": 2,
   "overall_coupling": "TIGHT" | "MODERATE" | "LOOSE"
-}
+}}

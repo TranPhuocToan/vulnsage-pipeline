@@ -214,16 +214,15 @@ def _run_local_analysis_p2(
     local_analyses: List[Dict[str, Any]] = []
 
     for file_data in sample["files"]:
-        prompt: str = LOCAL_ANALYSIS_PROMPT.format(
-            file_name=file_data["file_name"],
-            file_index=file_data["file_index"] + 1,
-            total_files=file_data["total_files"],
-            cve_id=sample["cve_id"],
-            cwe_id=sample["cwe_id"],
-            vulnerable_code=file_data["vulnerable_code"],
-            patched_code=file_data["patched_code"],
-            git_diff=file_data["git_diff"],
-        )
+        prompt: str = LOCAL_ANALYSIS_PROMPT
+        prompt = prompt.replace("{file_name}", str(file_data["file_name"]))
+        prompt = prompt.replace("{file_index}", str(file_data["file_index"] + 1))
+        prompt = prompt.replace("{total_files}", str(file_data["total_files"]))
+        prompt = prompt.replace("{cve_id}", str(sample.get("cve_id", "")))
+        prompt = prompt.replace("{cwe_id}", str(sample.get("cwe_id", "")))
+        prompt = prompt.replace("{vulnerable_code}", str(file_data["vulnerable_code"]))
+        prompt = prompt.replace("{patched_code}", str(file_data["patched_code"]))
+        prompt = prompt.replace("{git_diff}", str(file_data.get("git_diff", "")))
 
         response, token_usage = call_llm_with_retry_local(prompt)
         local_result: Dict = parse_local_analysis(response)
@@ -261,13 +260,12 @@ def _run_dependency_extraction(
     Returns:
         dict: Dependency evidence (dependencies list, coupling level, etc.)
     """
-    dependency_prompt: str = DEPENDENCY_EXTRACT_PROMPT.format(
-        cve_id=sample["cve_id"],
-        cwe_id=sample["cwe_id"],
-        num_files=sample["metadata"]["num_files"],
-        file_list=format_file_list_for_dependency(sample),
-        full_git_diff=sample.get("full_git_diff", ""),
-    )
+    dependency_prompt: str = DEPENDENCY_EXTRACT_PROMPT
+    dependency_prompt = dependency_prompt.replace("{cve_id}", str(sample.get("cve_id", "")))
+    dependency_prompt = dependency_prompt.replace("{cwe_id}", str(sample.get("cwe_id", "")))
+    dependency_prompt = dependency_prompt.replace("{num_files}", str(sample["metadata"]["num_files"]))
+    dependency_prompt = dependency_prompt.replace("{file_list}", format_file_list_for_dependency(sample))
+    dependency_prompt = dependency_prompt.replace("{full_git_diff}", sample.get("full_git_diff", ""))
 
     dep_response, dep_token_usage = call_llm_with_retry_dependency(dependency_prompt)
     dependency_evidence: Dict[str, Any] = parse_dependency_evidence(dep_response)
@@ -299,13 +297,12 @@ def _run_evidence_synthesis(
     local_text: str = format_local_analyses_for_synthesis(local_analyses)
     dependency_table: str = format_dependency_table(dependency_evidence)
 
-    synthesis_prompt: str = EVIDENCE_SYNTHESIS_PROMPT.format(
-        cve_id=sample["cve_id"],
-        cwe_id=sample["cwe_id"],
-        num_files=sample["metadata"]["num_files"],
-        local_analyses_text=local_text,
-        dependency_evidence_table=dependency_table,
-    )
+    synthesis_prompt: str = EVIDENCE_SYNTHESIS_PROMPT
+    synthesis_prompt = synthesis_prompt.replace("{cve_id}", str(sample.get("cve_id", "")))
+    synthesis_prompt = synthesis_prompt.replace("{cwe_id}", str(sample.get("cwe_id", "")))
+    synthesis_prompt = synthesis_prompt.replace("{num_files}", str(sample["metadata"]["num_files"]))
+    synthesis_prompt = synthesis_prompt.replace("{local_analyses_text}", local_text)
+    synthesis_prompt = synthesis_prompt.replace("{dependency_evidence_table}", dependency_table)
 
     synthesis_response, syn_token_usage = call_llm_with_retry(synthesis_prompt)
     accumulate_tokens(total_token_usage, syn_token_usage)

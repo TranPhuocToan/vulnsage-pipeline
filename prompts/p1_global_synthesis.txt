@@ -9,10 +9,10 @@ TỔNG HỢP (Hierarchical Merging):
 3. Quyết định: Bản vá tổng thể có khắc phục được lỗ hổng {cwe_id} không?
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
-{
+{{
   "global_synthesis": "Tổng hợp chi tiết...",
   "cross_file_consistency": "Đánh giá tính nhất quán giữa các tệp",
   "verdict": "PATCHED" | "NOT_PATCHED" | "NOT_SURE",
   "confidence": "HIGH" | "MEDIUM" | "LOW",
   "reasoning": "Lý do ngắn gọn"
-}
+}}

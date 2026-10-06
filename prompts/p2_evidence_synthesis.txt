@@ -17,10 +17,10 @@ TỔNG HỢP CÓ BẰNG CHỨNG:
 4. Kết luận kiểm chứng bản vá cuối cùng
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
-{
+{{
   "evidence_integration": "Cách bằng chứng phụ thuộc ảnh hưởng đến kết luận",
   "cross_file_synchrony": "Đánh giá đồng bộ giữa các tệp",
   "verdict": "PATCHED" | "NOT_PATCHED" | "NOT_SURE",
   "confidence": "HIGH" | "MEDIUM" | "LOW",
   "reasoning": "Lý do ngắn gọn có tích hợp bằng chứng phụ thuộc"
-}
+}}

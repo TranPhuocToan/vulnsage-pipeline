@@ -21,7 +21,7 @@ PHÂN TÍCH ĐỘC LẬP CHO TỆP NÀY:
 4. Đánh giá cục bộ: Các thay đổi có góp phần vá lỗ hổng không?
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (JSON):
-{
+{{
   "file_name": "{file_name}",
   "function_summary": "Mô tả vai trò tệp",
   "changes_summary": "Tóm tắt thay đổi",
@@ -29,4 +29,4 @@ PHÂN TÍCH ĐỘC LẬP CHO TỆP NÀY:
   "local_verdict": "CONTRIBUTES_TO_FIX" | "NOT_RELATED" | "UNCLEAR",
   "confidence": "HIGH" | "MEDIUM" | "LOW",
   "key_observations": ["Quan sát 1", "Quan sát 2"]
-}
+}}
