@@ -220,34 +220,87 @@ def call_llm_with_retry_dependency(
 
 def extract_json_from_response(text: str) -> str:
     """
-    Trích xuất JSON từ LLM response.
+    Trích xuất JSON từ LLM response một cách linh hoạt và dẻo dai.
 
-    Xử lý các trường hợp:
-    1. JSON được bọc trong markdown code fence (```json ... ```)
-    2. JSON trực tiếp trong text (tìm { ... } ngoài cùng)
+    Xử lý:
+    1. Markdown code fences (```json ... ``` hoặc ``` ... ```)
+    2. Thuật toán cân bằng ngoặc nhọn (balanced braces) để lấy đúng object {...} ngoài cùng
+    3. Tự động dọn dẹp trailing commas (dấu phẩy thừa trước } hoặc ])
 
     Args:
         text: Raw response text từ LLM.
 
     Returns:
-        str: Chuỗi JSON đã trích xuất.
+        str: Chuỗi JSON đã trích xuất và làm sạch.
 
     Raises:
         ValueError: Khi không tìm thấy JSON hợp lệ trong response.
     """
-    # Trường hợp 1: JSON trong markdown code fence
-    fence_match = re.search(
-        r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL
-    )
-    if fence_match:
-        return fence_match.group(1)
+    if not text or not isinstance(text, str):
+        raise ValueError("Empty or invalid response text")
 
-    # Trường hợp 2: JSON trực tiếp (tìm cặp { } ngoài cùng)
-    json_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if json_match:
-        return json_match.group()
+    # 1. Nếu có markdown code fence, ưu tiên lấy nội dung bên trong fence trước
+    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+    candidate_text = fence_match.group(1) if fence_match else text
 
-    raise ValueError(f"No JSON found in response: {text[:200]}...")
+    # 2. Tìm dấu mở ngoặc '{' đầu tiên
+    start_idx = candidate_text.find("{")
+    if start_idx == -1:
+        # Thử tìm trên toàn bộ văn bản gốc nếu trong fence không thấy
+        start_idx = text.find("{")
+        candidate_text = text
+        if start_idx == -1:
+            raise ValueError(f"No JSON object found in response: {text[:200]}...")
+
+    # 3. Thuật toán Balanced Braces: duyệt tìm đúng dấu '}' đóng tương ứng
+    balance = 0
+    in_string = False
+    escape = False
+    end_idx = -1
+
+    for i in range(start_idx, len(candidate_text)):
+        char = candidate_text[i]
+        if char == '"' and not escape:
+            in_string = not in_string
+        elif char == '\\' and in_string:
+            escape = not escape
+            continue
+        elif not in_string:
+            if char == '{':
+                balance += 1
+            elif char == '}':
+                balance -= 1
+                if balance == 0:
+                    end_idx = i + 1
+                    break
+        escape = False
+
+    if end_idx != -1:
+        raw_json = candidate_text[start_idx:end_idx]
+    else:
+        # Fallback: nếu LLM bị cắt cụt do max_tokens, lấy từ start đến dấu '}' cuối cùng
+        last_brace = candidate_text.rfind("}")
+        if last_brace != -1 and last_brace > start_idx:
+            raw_json = candidate_text[start_idx:last_brace + 1]
+        else:
+            raise ValueError(f"Unbalanced braces in response: {text[:200]}...")
+
+    # 4. Kiểm tra xem chuỗi JSON có parse được ngay không
+    try:
+        json.loads(raw_json)
+        return raw_json
+    except Exception:
+        pass
+
+    # 5. Dọn dẹp lỗi cú pháp phổ biến của LLM: Trailing commas (vd: {"a": 1,})
+    sanitized = re.sub(r",\s*([\}\]])", r"\1", raw_json)
+    try:
+        json.loads(sanitized)
+        return sanitized
+    except Exception:
+        pass
+
+    return raw_json
 
 
 def parse_prediction(response_text: str) -> str:
