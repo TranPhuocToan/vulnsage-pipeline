@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulnsage-kltn.local/schemas/experiment_manifest.schema.json",
+  "title": "VulnSage KLTN immutable experiment manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_schema_version",
+    "run_id",
+    "created_at_utc",
+    "dataset",
+    "sample_selection",
+    "model",
+    "prompts",
+    "code",
+    "pipeline",
+    "parameters",
+    "retry_policy",
+    "execution"
+  ],
+  "properties": {
+    "manifest_schema_version": {"const": "experiment-manifest-1.0"},
+    "run_id": {"type": "string", "minLength": 1},
+    "created_at_utc": {"type": "string", "format": "date-time"},
+    "dataset": {"$ref": "#/$defs/dataset"},
+    "sample_selection": {"$ref": "#/$defs/sampleSelection"},
+    "model": {"$ref": "#/$defs/model"},
+    "prompts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/prompt"}
+    },
+    "code": {"$ref": "#/$defs/code"},
+    "pipeline": {"$ref": "#/$defs/pipeline"},
+    "parameters": {"$ref": "#/$defs/parameters"},
+    "retry_policy": {"$ref": "#/$defs/retryPolicy"},
+    "execution": {"$ref": "#/$defs/execution"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "canonical_sha256",
+        "schema_version",
+        "source_files",
+        "filter_rule_id",
+        "filter_rule_sha256",
+        "validation_rule_version"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "canonical_sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"type": "string", "minLength": 1},
+        "source_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "filter_rule_id": {"type": "string", "minLength": 1},
+        "filter_rule_sha256": {"$ref": "#/$defs/sha256"},
+        "validation_rule_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "sampleSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["split", "seed", "sample_ids", "sample_list_sha256", "family_ids"],
+      "properties": {
+        "split": {"enum": ["PILOT", "TEST", "FULL", "CUSTOM"]},
+        "seed": {"type": "integer"},
+        "sample_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "sample_list_sha256": {"$ref": "#/$defs/sha256"},
+        "family_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model_id", "model_version"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "model_id": {"type": "string", "minLength": 1},
+        "model_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt_id", "path", "sha256"],
+      "properties": {
+        "prompt_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "git_commit", "dirty_worktree"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "git_commit": {"type": "string", "pattern": "^[a-fA-F0-9]{7,64}$"},
+        "dirty_worktree": {"type": "boolean"}
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipeline_id", "pipeline_version", "entrypoint_sha256"],
+      "properties": {
+        "pipeline_id": {"enum": ["P0", "P1", "P2"]},
+        "pipeline_version": {"type": "string", "minLength": 1},
+        "entrypoint_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature", "max_output_tokens", "extra"],
+      "properties": {
+        "temperature": {"type": "number", "minimum": 0},
+        "max_output_tokens": {"type": "integer", "minimum": 1},
+        "extra": {"type": "object"}
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_attempts", "backoff", "retryable_errors", "fallback_label"],
+      "properties": {
+        "max_attempts": {"type": "integer", "minimum": 1},
+        "backoff": {"type": "string", "minLength": 1},
+        "retryable_errors": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "fallback_label": {"enum": ["NOT_SURE", "ERROR"]}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "started_at_utc", "completed_at_utc", "result_files"],
+      "properties": {
+        "status": {"enum": ["PLANNED", "RUNNING", "COMPLETED", "FAILED", "INTERRUPTED"]},
+        "started_at_utc": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at_utc": {"type": ["string", "null"], "format": "date-time"},
+        "result_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

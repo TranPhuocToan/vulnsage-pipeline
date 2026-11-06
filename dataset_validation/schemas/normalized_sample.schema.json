@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulnsage-kltn.local/schemas/normalized_sample.schema.json",
+  "title": "VulnSage KLTN normalized patch-verification sample",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sample_id",
+    "family_id",
+    "dataset_version",
+    "source",
+    "identity",
+    "granularity",
+    "files",
+    "full_patch",
+    "ground_truth",
+    "variant",
+    "quality",
+    "commit_verification",
+    "build"
+  ],
+  "properties": {
+    "schema_version": {"const": "vulnsage-kltndata-1.1"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "family_id": {"type": "string", "minLength": 1},
+    "dataset_version": {"type": "string", "minLength": 1},
+    "source": {"$ref": "#/$defs/source"},
+    "identity": {"$ref": "#/$defs/identity"},
+    "granularity": {"$ref": "#/$defs/granularity"},
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/fileChange"}
+    },
+    "full_patch": {"$ref": "#/$defs/fullPatch"},
+    "ground_truth": {"$ref": "#/$defs/groundTruth"},
+    "variant": {"$ref": "#/$defs/variant"},
+    "quality": {"$ref": "#/$defs/quality"},
+    "commit_verification": {"$ref": "#/$defs/commitVerification"},
+    "build": {"$ref": "#/$defs/build"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nullableSha256": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataset_name",
+        "repository_url",
+        "source_file",
+        "source_file_sha256",
+        "source_row_id",
+        "source_commit_or_release"
+      ],
+      "properties": {
+        "dataset_name": {"type": "string", "minLength": 1},
+        "repository_url": {"type": "string", "format": "uri"},
+        "source_file": {"type": "string", "minLength": 1},
+        "source_file_sha256": {"$ref": "#/$defs/sha256"},
+        "source_row_id": {"type": ["string", "integer"]},
+        "source_commit_or_release": {"$ref": "#/$defs/nullableString"}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cve_id", "cwe_ids", "project", "fix_commit_hash", "parent_commit_hash"],
+      "properties": {
+        "cve_id": {"type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]+$"},
+        "cwe_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^CWE-[0-9]+$"}
+        },
+        "project": {"type": "string", "minLength": 1},
+        "fix_commit_hash": {"type": "string", "pattern": "^[a-fA-F0-9]{7,64}$"},
+        "parent_commit_hash": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[a-fA-F0-9]{7,64}$"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "granularity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "rule_id",
+        "declared_num_files",
+        "declared_num_functions",
+        "parsed_num_files",
+        "derivation_status"
+      ],
+      "properties": {
+        "label": {"enum": ["G1", "G2", "G3", "UNRESOLVED"]},
+        "rule_id": {"type": "string", "minLength": 1},
+        "declared_num_files": {"type": ["integer", "null"], "minimum": 0},
+        "declared_num_functions": {"type": ["integer", "null"], "minimum": 0},
+        "parsed_num_files": {"type": "integer", "minimum": 0},
+        "derivation_status": {"enum": ["VERIFIED", "UNRESOLVED"]}
+      }
+    },
+    "fileChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path_before",
+        "path_after",
+        "change_type",
+        "vulnerable_code",
+        "patched_code",
+        "vulnerable_code_sha256",
+        "patched_code_sha256",
+        "before_provenance",
+        "after_provenance",
+        "original_git_diff",
+        "original_git_diff_sha256",
+        "reconstructed_git_diff",
+        "reconstructed_git_diff_sha256",
+        "diff_origin",
+        "changed_hunks",
+        "coverage",
+        "validation_flags"
+      ],
+      "properties": {
+        "path_before": {"type": ["string", "null"]},
+        "path_after": {"type": ["string", "null"]},
+        "change_type": {"enum": ["MODIFY", "ADD", "DELETE", "RENAME", "UNRESOLVED"]},
+        "vulnerable_code": {"type": ["string", "null"]},
+        "patched_code": {"type": ["string", "null"]},
+        "vulnerable_code_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "patched_code_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "before_provenance": {"$ref": "#/$defs/blobProvenance"},
+        "after_provenance": {"$ref": "#/$defs/blobProvenance"},
+        "original_git_diff": {"type": ["string", "null"]},
+        "original_git_diff_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "reconstructed_git_diff": {"type": ["string", "null"]},
+        "reconstructed_git_diff_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "diff_origin": {"enum": ["SOURCE_COMMIT", "RECONSTRUCTED", "BOTH", "MISSING"]},
+        "changed_hunks": {"type": "array", "items": {"type": "object"}},
+        "coverage": {"$ref": "#/$defs/fileCoverage"},
+        "validation_flags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      },
+      "anyOf": [
+        {"required": ["path_before"], "properties": {"path_before": {"type": "string", "minLength": 1}}},
+        {"required": ["path_after"], "properties": {"path_after": {"type": "string", "minLength": 1}}}
+      ]
+    },
+    "fullPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "original_git_diff",
+        "original_git_diff_sha256",
+        "original_git_diff_hash_scope",
+        "reconstructed_git_diff",
+        "reconstructed_git_diff_sha256",
+        "canonical_source"
+      ],
+      "properties": {
+        "original_git_diff": {"type": ["string", "null"]},
+        "original_git_diff_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "original_git_diff_hash_scope": {"type": "string", "minLength": 1},
+        "reconstructed_git_diff": {"type": ["string", "null"]},
+        "reconstructed_git_diff_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "canonical_source": {"const": "ORIGINAL_COMMIT_DIFF"}
+      }
+    },
+    "groundTruth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task",
+        "label",
+        "label_scope",
+        "source",
+        "verification_methods",
+        "evidence_artifacts",
+        "review_status",
+        "reviewers",
+        "verified_at_utc"
+      ],
+      "properties": {
+        "task": {"const": "PATCH_VERIFICATION"},
+        "label": {"enum": ["PATCHED", "NOT_PATCHED", "UNKNOWN"]},
+        "label_scope": {"type": "string", "minLength": 1},
+        "source": {"enum": ["VULNSAGE_FIX_COMMIT", "DERIVED_VARIANT", "UNVERIFIED"]},
+        "verification_methods": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "evidence_artifacts": {"type": "array", "items": {"type": "string"}},
+        "review_status": {"enum": ["VERIFIED", "PENDING", "EXCLUDED"]},
+        "reviewers": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "verified_at_utc": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "is_variant",
+        "parent_sample_id",
+        "transformation_type",
+        "transformation_spec_sha256",
+        "removed_hunks"
+      ],
+      "properties": {
+        "is_variant": {"type": "boolean"},
+        "parent_sample_id": {"type": ["string", "null"]},
+        "transformation_type": {"type": ["string", "null"]},
+        "transformation_spec_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "removed_hunks": {"type": "array", "items": {"type": "string"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"is_variant": {"const": true}}},
+          "then": {
+            "properties": {
+              "parent_sample_id": {"type": "string", "minLength": 1},
+              "transformation_type": {"type": "string", "minLength": 1},
+              "transformation_spec_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        }
+      ]
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validation_status",
+        "reason_codes",
+        "noise_score",
+        "file_marker_status",
+        "metadata_consistency",
+        "diff_round_trip",
+        "function_boundary_check",
+        "validation_flags"
+      ],
+      "properties": {
+        "validation_status": {"enum": ["PASS", "WARNING", "UNRESOLVED", "FAIL"]},
+        "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "noise_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+        "file_marker_status": {"enum": ["PASS", "FAIL"]},
+        "metadata_consistency": {"enum": ["PASS", "UNRESOLVED", "FAIL"]},
+        "diff_round_trip": {"enum": ["PASS", "FAIL", "NOT_CHECKED"]},
+        "function_boundary_check": {"enum": ["PASS", "FAIL", "HEURISTIC_ONLY", "NOT_CHECKED"]},
+        "validation_flags": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "blobProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "commit_sha", "path", "blob_sha256"],
+      "properties": {
+        "status": {"enum": ["VERIFIED", "MISSING_BY_CHANGE_TYPE", "UNVERIFIABLE"]},
+        "source": {"enum": ["TARGETED_COMMIT_BLOB", "NOT_APPLICABLE", "UNAVAILABLE"]},
+        "commit_sha": {"type": ["string", "null"], "pattern": "^[a-fA-F0-9]{40}$"},
+        "path": {"type": ["string", "null"]},
+        "blob_sha256": {"$ref": "#/$defs/nullableSha256"}
+      }
+    },
+    "coverageMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "matched", "total", "ratio"],
+      "properties": {
+        "status": {"enum": ["MEASURED", "MEASURED_FROM_PATCH", "UNVERIFIED", "NOT_APPLICABLE"]},
+        "matched": {"type": "integer", "minimum": 0},
+        "total": {"type": "integer", "minimum": 0},
+        "ratio": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+      }
+    },
+    "fileCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "changed_lines", "hunks", "code_context"],
+      "properties": {
+        "path": {"$ref": "#/$defs/coverageMetric"},
+        "changed_lines": {"$ref": "#/$defs/coverageMetric"},
+        "hunks": {"$ref": "#/$defs/coverageMetric"},
+        "code_context": {"$ref": "#/$defs/coverageMetric"}
+      }
+    },
+    "commitVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "commit_sha",
+        "parent_commit_sha",
+        "source_url",
+        "reason_codes",
+        "coverage",
+        "security_semantics_verified"
+      ],
+      "properties": {
+        "status": {"enum": ["VERIFIED", "VERIFIED_WITH_GAPS", "UNVERIFIABLE", "FAILED"]},
+        "commit_sha": {"type": "string", "pattern": "^[a-fA-F0-9]{40}$"},
+        "parent_commit_sha": {"type": "string", "pattern": "^[a-fA-F0-9]{40}$"},
+        "source_url": {"type": "string", "format": "uri"},
+        "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "coverage": {"$ref": "#/$defs/fileCoverage"},
+        "security_semantics_verified": {"const": false}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "builder_version",
+        "evidence_snapshot_sha256",
+        "retrieval_manifest_sha256",
+        "deterministic_input_sha256",
+        "prototype_only"
+      ],
+      "properties": {
+        "builder_version": {"type": "string", "minLength": 1},
+        "evidence_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "retrieval_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "deterministic_input_sha256": {"$ref": "#/$defs/sha256"},
+        "prototype_only": {"const": true}
+      }
+    }
+  }
+}

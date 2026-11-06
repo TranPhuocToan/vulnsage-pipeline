@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulnsage-kltn.local/schemas/derived_representation.schema.json",
+  "title": "VulnSage provenance-preserving derived representation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "sample_id",
+    "source",
+    "identity",
+    "csv_extraction",
+    "original_commit",
+    "reconstructed_diff",
+    "recovery",
+    "unverified"
+  ],
+  "properties": {
+    "schema_version": {"const": "vulnsage-derived-1.0"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_file", "source_file_sha256", "source_row_id", "source_row_sha256", "source_data_modified"],
+      "properties": {
+        "source_file": {"type": "string", "minLength": 1},
+        "source_file_sha256": {"$ref": "#/$defs/sha256"},
+        "source_row_id": {"type": "string", "minLength": 1},
+        "source_row_sha256": {"$ref": "#/$defs/sha256"},
+        "source_data_modified": {"const": false}
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cve_id", "cwe_id", "project", "commit_sha"],
+      "properties": {
+        "cve_id": {"type": "string", "minLength": 1},
+        "cwe_id": {"type": "string", "minLength": 1},
+        "project": {"type": "string", "minLength": 1},
+        "commit_sha": {"type": "string", "pattern": "^[a-fA-F0-9]{40}$"}
+      }
+    },
+    "csv_extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "validation_status", "validation_reason_codes"],
+      "properties": {
+        "files": {"type": "array", "items": {"$ref": "#/$defs/extractedFile"}},
+        "validation_status": {"enum": ["PASS", "WARNING", "UNRESOLVED", "FAIL"]},
+        "validation_reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "original_commit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verification", "provenance"],
+      "properties": {
+        "verification": {"type": "object"},
+        "provenance": {"const": "EXTERNAL_COMMIT_EVIDENCE"}
+      }
+    },
+    "reconstructed_diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "provenance"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "diff", "diff_sha256", "provenance"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "diff": {"type": "string"},
+              "diff_sha256": {"$ref": "#/$defs/sha256"},
+              "provenance": {"const": "RECONSTRUCTED_FROM_CSV_BLOCKS"}
+            }
+          }
+        },
+        "provenance": {"const": "DERIVED_NOT_ORIGINAL"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["performed", "candidates", "policy"],
+      "properties": {
+        "performed": {"type": "boolean"},
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "available_from", "recovered_code", "recovery_status"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "available_from": {"const": "ORIGINAL_COMMIT_DIFF"},
+              "recovered_code": {"type": ["string", "null"]},
+              "recovery_status": {"enum": ["NOT_PERFORMED", "RECOVERED", "UNVERIFIABLE"]}
+            }
+          }
+        },
+        "policy": {"const": "NO_CODE_IS_FILLED_WITHOUT_EXPLICIT_COMMIT_PROVENANCE"}
+      }
+    },
+    "unverified": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nullableSha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "extractedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "before_present",
+        "after_present",
+        "vulnerable_code",
+        "patched_code",
+        "vulnerable_code_sha256",
+        "patched_code_sha256",
+        "provenance"
+      ],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "before_present": {"type": "boolean"},
+        "after_present": {"type": "boolean"},
+        "vulnerable_code": {"type": ["string", "null"]},
+        "patched_code": {"type": ["string", "null"]},
+        "vulnerable_code_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "patched_code_sha256": {"$ref": "#/$defs/nullableSha256"},
+        "provenance": {"const": "VULNSAGE_CSV_CODE_BLOCK"}
+      }
+    }
+  }
+}
