@@ -76,6 +76,12 @@ DEPENDENCY_EXTRACT_PROMPT: str = _load_prompt("p2_dependency_extract.txt")
 EVIDENCE_SYNTHESIS_PROMPT: str = _load_prompt("p2_evidence_synthesis.txt")
 
 
+def process_canonical_sample_p2(adapted, client, policy=None):
+    """Phase-3B canonical entry point; client injection keeps tests offline."""
+    from pipeline.offline_integration import run_canonical_sample
+    return run_canonical_sample("p2", adapted, client, policy)
+
+
 def run_p2(parsed_data_path: str, output_path: str) -> List[Dict[str, Any]]:
     """
     Chạy Pipeline P2 (Phân rã Nâng cao – SySeVR-inspired) trên toàn bộ dataset.

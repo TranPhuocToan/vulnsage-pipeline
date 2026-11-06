@@ -66,6 +66,12 @@ LOCAL_ANALYSIS_PROMPT: str = _load_prompt("p1_local_analysis.txt")
 GLOBAL_SYNTHESIS_PROMPT: str = _load_prompt("p1_global_synthesis.txt")
 
 
+def process_canonical_sample_p1(adapted, client, policy=None):
+    """Phase-3B canonical entry point; client injection keeps tests offline."""
+    from pipeline.offline_integration import run_canonical_sample
+    return run_canonical_sample("p1", adapted, client, policy)
+
+
 def run_p1(parsed_data_path: str, output_path: str) -> List[Dict[str, Any]]:
     """
     Chạy Pipeline P1 (Phân rã Cơ bản – CAHM-inspired) trên toàn bộ dataset.

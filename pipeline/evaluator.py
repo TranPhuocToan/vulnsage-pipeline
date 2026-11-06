@@ -61,6 +61,88 @@ from config import RESULTS_MAIN_DIR, RESULTS_PILOT_DIR
 matplotlib.use("Agg")
 
 
+class PositiveOnlyEvaluationError(ValueError):
+    """Raised when a positive-only result set is internally inconsistent."""
+
+
+def evaluate_positive_only(
+    results: List[Dict[str, Any]], expected_sample_ids: List[str]
+) -> Dict[str, Any]:
+    """Evaluate known fix-commit post-states without claiming binary accuracy.
+
+    C=PATCHED, R=NOT_PATCHED, U=model NOT_SURE, E=technical/missing.
+    Coverage and selective accuracy exclude abstentions and technical failures.
+    """
+    if len(expected_sample_ids) != len(set(expected_sample_ids)):
+        raise PositiveOnlyEvaluationError("duplicate sample ID in expected list")
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for result in results:
+        sample_id = result.get("sample_id")
+        if sample_id in by_id:
+            raise PositiveOnlyEvaluationError(f"duplicate result sample ID: {sample_id}")
+        if sample_id not in expected_sample_ids:
+            raise PositiveOnlyEvaluationError(f"unexpected result sample ID: {sample_id}")
+        by_id[sample_id] = result
+
+    counts = {"C": 0, "R": 0, "U": 0, "E": 0}
+    for sample_id in expected_sample_ids:
+        result = by_id.get(sample_id)
+        if not result or result.get("execution_status") != "COMPLETED":
+            counts["E"] += 1
+            continue
+        prediction = result.get("prediction")
+        if prediction == "PATCHED":
+            counts["C"] += 1
+        elif prediction == "NOT_PATCHED":
+            counts["R"] += 1
+        elif prediction == "NOT_SURE":
+            counts["U"] += 1
+        else:
+            counts["E"] += 1
+
+    n = len(expected_sample_ids)
+    if sum(counts.values()) != n:
+        raise PositiveOnlyEvaluationError("invariant violation: C + R + U + E != N")
+    decided = counts["C"] + counts["R"]
+
+    def rate(value: int, denominator: int) -> Optional[float]:
+        return round(value / denominator, 6) if denominator else None
+
+    return {
+        "evaluation_scope": "POSITIVE_ONLY_KNOWN_FIX_COMMIT_POST_STATES",
+        "N": n,
+        **counts,
+        "positive_acceptance_rate": rate(counts["C"], n),
+        "false_rejection_rate": rate(counts["R"], n),
+        "not_sure_rate": rate(counts["U"], n),
+        "technical_failure_rate": rate(counts["E"], n),
+        "coverage": rate(decided, n),
+        "selective_accuracy": rate(counts["C"], decided),
+        "binary_accuracy_f1_reported": False,
+    }
+
+
+def evaluate_positive_only_ablation(
+    results_by_pipeline: Dict[str, List[Dict[str, Any]]],
+    expected_sample_ids: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Require P0/P1/P2 to use exactly the same immutable sample list."""
+    required = {"P0", "P1", "P2"}
+    if set(results_by_pipeline) != required:
+        raise PositiveOnlyEvaluationError("results must contain exactly P0, P1, and P2")
+    expected_set = set(expected_sample_ids)
+    for pipeline, results in results_by_pipeline.items():
+        ids = [item.get("sample_id") for item in results]
+        if len(ids) != len(set(ids)):
+            raise PositiveOnlyEvaluationError(f"{pipeline}: duplicate sample ID")
+        if set(ids) != expected_set:
+            raise PositiveOnlyEvaluationError(f"{pipeline}: sample list mismatch")
+    return {
+        pipeline: evaluate_positive_only(results, expected_sample_ids)
+        for pipeline, results in results_by_pipeline.items()
+    }
+
+
 def evaluate_pipeline(
     results_path: str, pipeline_name: str
 ) -> Dict[str, Any]:

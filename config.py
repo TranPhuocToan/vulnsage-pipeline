@@ -6,7 +6,11 @@ tính công bằng trong Ablation Study giữa P0, P1 và P2.
 """
 
 import os
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # Offline unit-test environments need no .env loader.
+    def load_dotenv(*args, **kwargs):
+        return False
 
 load_dotenv()
 

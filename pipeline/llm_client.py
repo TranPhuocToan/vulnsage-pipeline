@@ -22,9 +22,13 @@ References:
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:  # The strict mock path must work without the paid API SDK.
+    OpenAI = None  # type: ignore[assignment,misc]
 
 from config import (
     MODEL_NAME,
@@ -46,6 +50,8 @@ def get_llm_client() -> OpenAI:
     Returns:
         OpenAI: Client instance đã cấu hình.
     """
+    if OpenAI is None:
+        raise RuntimeError("openai package is not installed; use an injected offline transport")
     return OpenAI(
         api_key=API_KEY,
         base_url=API_BASE_URL if API_BASE_URL else None,
@@ -359,3 +365,171 @@ def accumulate_tokens(
     """
     for key in ["input_tokens", "output_tokens", "total_tokens"]:
         total[key] = total.get(key, 0) + new.get(key, 0)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3B strict/offline-capable client.  The legacy API above is retained for
+# backwards compatibility; new canonical runs use this interface so technical
+# failures are never converted into a model NOT_SURE verdict.
+
+Transport = Callable[[str], Tuple[str, Optional[Dict[str, Optional[int]]]]]
+
+
+@dataclass(frozen=True)
+class AttemptTelemetry:
+    attempt: int
+    status: str
+    duration_sec: float
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    total_tokens: Optional[int]
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class StructuredCallResult:
+    status: str
+    response_kind: str
+    parsed: Optional[Dict[str, Any]]
+    raw_response: Optional[str]
+    model_abstained: bool
+    attempts: List[Dict[str, Any]]
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+_VERDICTS = {"PATCHED", "NOT_PATCHED", "NOT_SURE"}
+_LOCAL_VERDICTS = {"CONTRIBUTES_TO_FIX", "NOT_RELATED", "UNCLEAR"}
+
+
+def _strict_string_list(value: Any, field: str) -> None:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{field} must be a list of strings")
+
+
+def validate_structured_payload(payload: Any, response_kind: str) -> Dict[str, Any]:
+    """Validate response types/enums without silently coercing values."""
+    if not isinstance(payload, dict):
+        raise ValueError("response JSON must be an object")
+    if response_kind == "verdict":
+        if payload.get("verdict") not in _VERDICTS:
+            raise ValueError("verdict must be PATCHED, NOT_PATCHED, or NOT_SURE")
+        if payload.get("confidence") not in {"HIGH", "MEDIUM", "LOW"}:
+            raise ValueError("confidence must be HIGH, MEDIUM, or LOW")
+        if not isinstance(payload.get("reasoning"), str):
+            raise ValueError("reasoning must be a string")
+    elif response_kind == "local":
+        if payload.get("local_verdict") not in _LOCAL_VERDICTS:
+            raise ValueError("invalid local_verdict enum")
+        if payload.get("confidence") not in {"HIGH", "MEDIUM", "LOW"}:
+            raise ValueError("confidence must be HIGH, MEDIUM, or LOW")
+        for field in ("file_name", "function_summary", "changes_summary", "security_purpose"):
+            if not isinstance(payload.get(field), str):
+                raise ValueError(f"{field} must be a string")
+        _strict_string_list(payload.get("key_observations"), "key_observations")
+    elif response_kind == "dependency":
+        dependencies = payload.get("dependencies")
+        if not isinstance(dependencies, list):
+            raise ValueError("dependencies must be an array")
+        for index, dependency in enumerate(dependencies):
+            if not isinstance(dependency, dict):
+                raise ValueError(f"dependencies[{index}] must be an object")
+            for key in ("source_file", "target_file", "dependency_type", "description"):
+                if not isinstance(dependency.get(key), str):
+                    raise ValueError(f"dependencies[{index}].{key} must be a string")
+            if dependency["dependency_type"] not in {
+                "FUNCTION_CALL", "DATA_FLOW", "STRUCT_USAGE", "HEADER_INCLUDE", "OTHER"
+            }:
+                raise ValueError(f"dependencies[{index}].dependency_type has invalid enum")
+            _strict_string_list(dependency.get("anchor_lines"), f"dependencies[{index}].anchor_lines")
+            if not isinstance(dependency.get("security_relevance"), str):
+                raise ValueError(f"dependencies[{index}].security_relevance must be a string")
+        if not isinstance(payload.get("dependency_analysis"), str):
+            raise ValueError("dependency_analysis must be a string")
+        if type(payload.get("num_cross_file_dependencies")) is not int:
+            raise ValueError("num_cross_file_dependencies must be an integer")
+        if payload.get("overall_coupling") not in {"TIGHT", "MODERATE", "LOOSE"}:
+            raise ValueError("overall_coupling has invalid enum")
+    else:
+        raise ValueError(f"unknown response_kind: {response_kind}")
+    return payload
+
+
+class StructuredLLMClient:
+    """Retrying client with an injected transport, suitable for offline mocks."""
+
+    def __init__(
+        self,
+        transport: Transport,
+        max_attempts: int = 3,
+        retry_delays: Optional[List[float]] = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
+        self.transport = transport
+        self.max_attempts = max_attempts
+        self.retry_delays = retry_delays or [0.0] * max_attempts
+        self.sleep = sleep
+        self.clock = clock
+
+    def invoke(self, prompt: str, response_kind: str) -> StructuredCallResult:
+        attempts: List[Dict[str, Any]] = []
+        last_error: Optional[Exception] = None
+        for attempt in range(1, self.max_attempts + 1):
+            started = self.clock()
+            usage: Optional[Dict[str, Optional[int]]] = None
+            raw: Optional[str] = None
+            try:
+                raw, usage = self.transport(prompt)
+                parsed = json.loads(extract_json_from_response(raw))
+                validated = validate_structured_payload(parsed, response_kind)
+                telemetry = AttemptTelemetry(
+                    attempt=attempt,
+                    status="OK",
+                    duration_sec=max(0.0, self.clock() - started),
+                    input_tokens=(usage or {}).get("input_tokens"),
+                    output_tokens=(usage or {}).get("output_tokens"),
+                    total_tokens=(usage or {}).get("total_tokens"),
+                )
+                attempts.append(asdict(telemetry))
+                verdict = validated.get("verdict") or validated.get("local_verdict")
+                return StructuredCallResult(
+                    status="OK",
+                    response_kind=response_kind,
+                    parsed=validated,
+                    raw_response=raw,
+                    model_abstained=verdict in {"NOT_SURE", "UNCLEAR"},
+                    attempts=attempts,
+                )
+            except Exception as exc:
+                last_error = exc
+                telemetry = AttemptTelemetry(
+                    attempt=attempt,
+                    status="ERROR",
+                    duration_sec=max(0.0, self.clock() - started),
+                    input_tokens=(usage or {}).get("input_tokens"),
+                    output_tokens=(usage or {}).get("output_tokens"),
+                    total_tokens=(usage or {}).get("total_tokens"),
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+                attempts.append(asdict(telemetry))
+                if attempt < self.max_attempts:
+                    delay = self.retry_delays[min(attempt - 1, len(self.retry_delays) - 1)]
+                    if delay > 0:
+                        self.sleep(delay)
+
+        assert last_error is not None
+        return StructuredCallResult(
+            status="TECHNICAL_ERROR",
+            response_kind=response_kind,
+            parsed=None,
+            raw_response=None,
+            model_abstained=False,
+            attempts=attempts,
+            error_type=type(last_error).__name__,
+            error_message=str(last_error),
+        )

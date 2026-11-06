@@ -54,6 +54,12 @@ def _load_prompt_template() -> str:
 THINK_VERIFY_PROMPT: str = _load_prompt_template()
 
 
+def process_canonical_sample_p0(adapted, client, policy=None):
+    """Phase-3B canonical entry point; client injection keeps tests offline."""
+    from pipeline.offline_integration import run_canonical_sample
+    return run_canonical_sample("p0", adapted, client, policy)
+
+
 def run_p0(parsed_data_path: str, output_path: str) -> List[Dict[str, Any]]:
     """
     Chạy Pipeline P0 (Baseline Think & Verify) trên toàn bộ dataset.
