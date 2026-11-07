@@ -48,6 +48,10 @@ def build_run_spec(
     prompt_hashes: Mapping[str, str],
     code_sha256: str,
     git_commit: str | None,
+    artifact_hashes: Mapping[str, str] | None = None,
+    model_metadata: Mapping[str, Any] | None = None,
+    output_directory: str | None = None,
+    resume_policy: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     if not run_id or any(char in run_id for char in '<>:"/\\|?*'):
         raise RunStateError("run_id must be non-empty and Windows-safe")
@@ -69,6 +73,14 @@ def build_run_spec(
         "code_sha256": code_sha256,
         "git_commit": git_commit,
     }
+    if artifact_hashes is not None:
+        base["artifact_hashes"] = dict(artifact_hashes)
+    if model_metadata is not None:
+        base["model_metadata"] = dict(model_metadata)
+    if output_directory is not None:
+        base["output_directory"] = output_directory
+    if resume_policy is not None:
+        base["resume_policy"] = dict(resume_policy)
     return {**base, "spec_sha256": hash_value(base)}
 
 

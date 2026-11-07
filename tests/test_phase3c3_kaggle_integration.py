@@ -4,15 +4,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dataset_validation.smoke_package import prepare_one_sample_smoke_package
 from pipeline.canonical_adapter import dataset_sha256, load_and_adapt_dataset
 from pipeline.llm_client import StructuredLLMClient
 from pipeline.ollama_transport import OllamaConfig, OllamaGenerateTransport, OllamaTransportError
 from pipeline.pilot_runner import (
     PilotRunnerError,
+    load_official_package,
     load_official_manifest,
     run_approved_pilot,
+    validate_official_package_inputs,
     validate_pilot_inputs,
 )
+from pipeline.offline_integration import run_canonical_sample
 from pipeline.run_state import hash_value
 
 
@@ -20,6 +24,46 @@ WORKSPACE = Path(__file__).resolve().parents[3]
 PROTOTYPE = WORKSPACE / "docs" / "audits" / "artifacts" / "phase2e" / "prototype_normalized_dataset.json"
 SCHEMA = Path(__file__).resolve().parents[1] / "dataset_validation" / "schemas" / "normalized_sample.schema.json"
 NOTEBOOK = Path(__file__).resolve().parents[1] / "notebooks" / "phase3d_kaggle_qwen25coder7b_v2.ipynb"
+SMOKE_SAMPLE_ID = "vs:e51ac3a94239:19047:canonical"
+SMOKE_GAPS = (
+    "FILE_COUNT_MISMATCH",
+    "RECONSTRUCTED_CHANGE_COUNT_MISMATCH",
+    "SOURCE_COMMIT_FILE_MISSING",
+)
+
+
+def build_smoke_package(root, git_commit="a" * 40):
+    decision = {
+        "decision_id": "fixture-only-decision",
+        "sample_id": SMOKE_SAMPLE_ID,
+        "decision": "APPROVE",
+        "reviewer_id": "fixture-reviewer",
+        "reviewer_name": "Fixture Reviewer",
+        "reason": "Test fixture only; this is not research approval.",
+        "decided_at_utc": "2026-11-07T06:00:00Z",
+        "evidence_refs": ["fixture://patch"],
+        "waivers": [
+            {
+                "reason_code": code,
+                "scope": "DERIVED_REPRESENTATION_ONLY",
+                "reason": "Fixture-only derived gap waiver.",
+                "evidence_refs": ["fixture://canonical"],
+            }
+            for code in SMOKE_GAPS
+        ],
+    }
+    decision_path = root / "fixture-decision.json"
+    decision_path.write_text(json.dumps(decision), encoding="utf-8")
+    package = root / "package"
+    prepare_one_sample_smoke_package(
+        source_dataset_path=PROTOTYPE,
+        source_row_id="19047",
+        review_decision_path=decision_path,
+        schema_path=SCHEMA,
+        output_dir=package,
+        git_commit=git_commit,
+    )
+    return package
 
 
 class FakeResponse:
@@ -114,7 +158,7 @@ class KaggleNotebookStaticTests(unittest.TestCase):
                 ast.parse("".join(cell.get("source", [])))
         self.assertIn("APPROVED_GIT_COMMIT", code)
         self.assertIn("CONFIRM_PAID_OR_GPU_INFERENCE is True", code)
-        self.assertIn("validate_pilot_inputs", code)
+        self.assertIn("validate_official_package_inputs", code)
         self.assertIn("run_approved_pilot", code)
         self.assertIn("qwen2.5-coder:7b", code)
         self.assertNotIn("sk-", code)
@@ -172,28 +216,87 @@ class OfficialPilotContractTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            manifest = root / "manifest.json"
-            write_manifest(manifest, [self.sample_id])
+            package = build_smoke_package(root)
             kwargs = dict(
-                manifest_path=manifest,
-                dataset_path=PROTOTYPE,
+                package_dir=package,
                 schema_path=SCHEMA,
                 output_root=root / "output",
                 run_prefix="pilot-fixture",
                 git_commit="a" * 40,
                 model_id="qwen2.5-coder:7b",
                 model_digest="sha256:model-fixture",
+                model_quantization="Q4_K_M",
+                tokenizer_metadata={
+                    "id": "fixture-tokenizer",
+                    "library": "fixture",
+                    "version": "1.0",
+                    "class": "WhitespaceTokenizer",
+                },
                 parameters=OllamaConfig().run_parameters(),
                 retry_policy={"max_attempts": 1},
                 client_factory=lambda pipeline: StructuredLLMClient(PipelineMock(), max_attempts=1),
-                model_context_tokens=1_000_000,
+                model_context_tokens=32768,
                 reserved_output_tokens=2048,
+                exact_token_counter=lambda text: len(text.split()),
             )
             first = run_approved_pilot(**kwargs)
             second = run_approved_pilot(**kwargs)
             self.assertTrue(first["complete"])
             self.assertEqual(first, second)
             self.assertEqual(first["result_count_by_pipeline"], {"P0": 1, "P1": 1, "P2": 1})
+            spec = json.loads(
+                (root / "output" / "runs" / "pilot-fixture-p0" / "run_spec.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(spec["model_metadata"]["quantization"], "Q4_K_M")
+            self.assertIn("review_decision", spec["artifact_hashes"])
+            self.assertFalse(spec["resume_policy"]["overwrite"])
+
+    def test_complete_package_contract_rejects_tampering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = build_smoke_package(root)
+            loaded = load_official_package(package, SCHEMA, expected_git_commit="a" * 40)
+            self.assertEqual(loaded["manifest"]["ordered_sample_ids"], [SMOKE_SAMPLE_ID])
+            decision = package / "review_decision.json"
+            decision.write_text(decision.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(PilotRunnerError, "REVIEW_DECISION_HASH_MISMATCH|RECEIPT_HASH"):
+                load_official_package(package, SCHEMA, expected_git_commit="a" * 40)
+
+    def test_exact_token_preflight_and_runtime_guard(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = build_smoke_package(Path(directory))
+            report = validate_official_package_inputs(
+                package_dir=package,
+                schema_path=SCHEMA,
+                expected_git_commit="a" * 40,
+                model_context_tokens=1_000_000,
+                reserved_output_tokens=2048,
+                exact_token_counter=lambda text: len(text.split()),
+            )
+            self.assertEqual(
+                report["exact_token_preflight_status"],
+                "PASS_STATIC_PROMPTS_RUNTIME_GUARD_REQUIRED",
+            )
+            self.assertTrue(report["exact_static_prompt_token_counts"])
+            self.assertTrue(report["runtime_dependent_prompt_stages"])
+
+        adapted = next(item for item in self.adapted if item["sample_id"] == self.sample_id)
+        calls = []
+
+        def must_not_call(prompt):
+            calls.append(prompt)
+            raise AssertionError("transport must not be called after token overflow")
+
+        result = run_canonical_sample(
+            "p0",
+            adapted,
+            StructuredLLMClient(must_not_call, max_attempts=1),
+            token_counter=lambda text: 1_000_001,
+            model_input_token_limit=30_720,
+        )
+        self.assertEqual(result["execution_status"], "TECHNICAL_ERROR")
+        self.assertIn("CONTEXT_OVERFLOW:tokens:p0.verdict", result["technical_error"])
+        self.assertEqual(calls, [])
 
     def test_qwen_32k_preflight_blocks_oversized_canonical_context(self):
         with tempfile.TemporaryDirectory() as directory:
