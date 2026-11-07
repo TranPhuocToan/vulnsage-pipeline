@@ -104,6 +104,11 @@ def render_static_prompt_plan(
         runtime_dependent.append(f"{pipeline_id}.synthesis")
     return {
         "pipeline": pipeline_id.upper(),
+        "context_policy_sha256": policy.sha256(),
+        "representation_provenance": [
+            item["representation_provenance"] for item in context["files"]
+            if "representation_provenance" in item
+        ],
         "static_prompts": [
             {
                 "stage": item["stage"],
@@ -299,6 +304,10 @@ def run_canonical_sample(
             "model_abstained": prediction == "NOT_SURE",
             "context_hashes": context_hashes,
             "context_policy_sha256": policy.sha256(),
+            "representation_provenance": [
+                item["representation_provenance"] for item in context["files"]
+                if "representation_provenance" in item
+            ],
             "prompt_hashes": prompt_hashes(pipeline_id),
             "exact_token_preflight": "EXACT" if token_counter is not None else "NOT_RUN",
             "pre_call_token_counts": pre_call_token_counts,

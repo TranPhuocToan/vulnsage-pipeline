@@ -52,6 +52,8 @@ def build_run_spec(
     model_metadata: Mapping[str, Any] | None = None,
     output_directory: str | None = None,
     resume_policy: Mapping[str, Any] | None = None,
+    context_policy_configuration: Mapping[str, Any] | None = None,
+    source_package_git_commit: str | None = None,
 ) -> Dict[str, Any]:
     if not run_id or any(char in run_id for char in '<>:"/\\|?*'):
         raise RunStateError("run_id must be non-empty and Windows-safe")
@@ -81,6 +83,10 @@ def build_run_spec(
         base["output_directory"] = output_directory
     if resume_policy is not None:
         base["resume_policy"] = dict(resume_policy)
+    if context_policy_configuration is not None:
+        base["context_policy_configuration"] = dict(context_policy_configuration)
+    if source_package_git_commit is not None:
+        base["source_package_git_commit"] = source_package_git_commit
     return {**base, "spec_sha256": hash_value(base)}
 
 

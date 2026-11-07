@@ -107,6 +107,7 @@ def _code_hash() -> str:
     return hash_files([
         root / "pipeline" / "canonical_adapter.py",
         root / "pipeline" / "context_policy.py",
+        root / "pipeline" / "lossless_context.py",
         root / "pipeline" / "offline_integration.py",
         root / "pipeline" / "preflight.py",
         root / "pipeline" / "run_state.py",

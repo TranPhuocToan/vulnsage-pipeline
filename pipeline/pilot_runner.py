@@ -6,12 +6,13 @@ import hashlib
 import json
 import math
 import re
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from dataset_validation.qualification import validate_review_decision
 from pipeline.canonical_adapter import dataset_sha256, load_and_adapt_dataset
-from pipeline.context_policy import ContextPolicy, prepare_context
+from pipeline.context_policy import FULL_BLOBS, ContextPolicy, prepare_context
 from pipeline.evaluator import evaluate_positive_only_ablation
 from pipeline.llm_client import StructuredLLMClient
 from pipeline.offline_integration import prompt_hashes, render_static_prompt_plan, run_canonical_sample
@@ -231,6 +232,10 @@ def validate_pilot_inputs(
             "model_diff_sha256": prepared["diff_bundle"]["sha256"],
             "context_estimates": estimates,
             "overflow_likely_stages": risks,
+            "representation_provenance": [
+                part["representation_provenance"] for part in prepared["files"]
+                if "representation_provenance" in part
+            ],
         })
     return {
         "status": "BLOCKED_CONTEXT_OVERFLOW_LIKELY" if overflow_likely else "PASS_NO_LLM",
@@ -337,6 +342,7 @@ def _code_hash() -> str:
     return hash_files([
         root / "pipeline" / "canonical_adapter.py",
         root / "pipeline" / "context_policy.py",
+        root / "pipeline" / "lossless_context.py",
         root / "pipeline" / "llm_client.py",
         root / "pipeline" / "offline_integration.py",
         root / "pipeline" / "ollama_transport.py",
@@ -364,6 +370,8 @@ def run_approved_pilot(
     reserved_output_tokens: int = 2048,
     max_new_samples_per_pipeline: int | None = None,
     exact_token_counter: Callable[[str], int] | None = None,
+    package_git_commit: str | None = None,
+    allow_candidate_context_policy: bool = False,
 ) -> dict[str, Any]:
     """Run/resume P0/P1/P2 only after the official manifest passes."""
     if not SHA40.fullmatch(git_commit):
@@ -380,6 +388,12 @@ def run_approved_pilot(
         raise PilotRunnerError("TOKENIZER_METADATA_REQUIRED")
     if exact_token_counter is None:
         raise PilotRunnerError("EXACT_TOKEN_COUNTER_REQUIRED")
+    policy = context_policy or ContextPolicy()
+    if policy.code_representation != FULL_BLOBS and allow_candidate_context_policy is not True:
+        raise PilotRunnerError("HUMAN_DECISION_CONTEXT_POLICY_REQUIRED")
+    package_commit = package_git_commit if package_git_commit is not None else git_commit
+    if not SHA40.fullmatch(package_commit):
+        raise PilotRunnerError("FULL_PACKAGE_GIT_COMMIT_REQUIRED")
     required_parameters = {"temperature", "num_ctx", "num_predict", "seed", "stream"}
     if not required_parameters.issubset(parameters):
         raise PilotRunnerError("IMMUTABLE_MODEL_PARAMETERS_INCOMPLETE")
@@ -393,7 +407,7 @@ def run_approved_pilot(
     validation = validate_official_package_inputs(
         package_dir=package_dir,
         schema_path=schema_path,
-        expected_git_commit=git_commit,
+        expected_git_commit=package_commit,
         context_policy=context_policy,
         model_context_tokens=model_context_tokens,
         reserved_output_tokens=reserved_output_tokens,
@@ -443,6 +457,11 @@ def run_approved_pilot(
                 "existing_results": "REUSE_IF_HASH_AND_SPEC_MATCH",
                 "overwrite": False,
             },
+            context_policy_configuration=(
+                {**asdict(policy), "candidate_opt_in": allow_candidate_context_policy}
+                if policy.code_representation != FULL_BLOBS else None
+            ),
+            source_package_git_commit=package_git_commit,
         )
         workspace = RunWorkspace(Path(output_root) / "runs", spec)
         workspace.initialize()
@@ -481,6 +500,8 @@ def run_approved_pilot(
     evaluation = evaluate_positive_only_ablation(results_by_pipeline, ids) if complete else None
     return {
         "runner_version": PILOT_RUNNER_VERSION,
+        "experiment_git_commit": git_commit,
+        "source_package_git_commit": package_commit,
         "complete": complete,
         "ordered_sample_ids": ids,
         "dataset_sha256": validation["dataset_sha256"],
