@@ -80,6 +80,10 @@ def _parse_time(value: str) -> None:
         raise QualificationError("invalid decided_at_utc") from exc
 
 
+def _is_review_placeholder(value: str) -> bool:
+    return value.strip().upper().startswith("REPLACE_WITH_")
+
+
 def validate_review_decision(decision: Mapping[str, Any], sample_id: str) -> dict[str, Any]:
     """Validate an attributable decision without applying it to ground truth."""
     required = {
@@ -96,11 +100,14 @@ def validate_review_decision(decision: Mapping[str, Any], sample_id: str) -> dic
     for field in ("decision_id", "reviewer_id", "reviewer_name", "reason"):
         if not isinstance(decision[field], str) or not decision[field].strip():
             raise QualificationError(f"{field} must be a non-empty string")
+        if _is_review_placeholder(decision[field]):
+            raise QualificationError(f"{field} still contains a template placeholder")
     _parse_time(decision["decided_at_utc"])
-    if not isinstance(decision["evidence_refs"], list) or not all(
-        isinstance(item, str) and item for item in decision["evidence_refs"]
+    if not isinstance(decision["evidence_refs"], list) or not decision["evidence_refs"] or not all(
+        isinstance(item, str) and item.strip() and not _is_review_placeholder(item)
+        for item in decision["evidence_refs"]
     ):
-        raise QualificationError("evidence_refs must be a list of non-empty strings")
+        raise QualificationError("evidence_refs must be a non-empty list of non-placeholder strings")
     if not isinstance(decision["waivers"], list):
         raise QualificationError("waivers must be an array")
     seen = set()
@@ -114,10 +121,17 @@ def validate_review_decision(decision: Mapping[str, Any], sample_id: str) -> dic
             raise QualificationError(f"waiver not allowed for canonical/non-derived gap: {code}")
         if waiver["scope"] != "DERIVED_REPRESENTATION_ONLY":
             raise QualificationError("waiver scope must be DERIVED_REPRESENTATION_ONLY")
-        if not isinstance(waiver["reason"], str) or not waiver["reason"].strip():
+        if (
+            not isinstance(waiver["reason"], str)
+            or not waiver["reason"].strip()
+            or _is_review_placeholder(waiver["reason"])
+        ):
             raise QualificationError("waiver reason must be non-empty")
-        if not isinstance(waiver["evidence_refs"], list) or not waiver["evidence_refs"]:
-            raise QualificationError("waiver evidence_refs must be non-empty")
+        if not isinstance(waiver["evidence_refs"], list) or not waiver["evidence_refs"] or not all(
+            isinstance(item, str) and item.strip() and not _is_review_placeholder(item)
+            for item in waiver["evidence_refs"]
+        ):
+            raise QualificationError("waiver evidence_refs must be non-empty non-placeholder strings")
         if code in seen:
             raise QualificationError(f"duplicate waiver: {code}")
         seen.add(code)
