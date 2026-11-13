@@ -5,6 +5,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 
@@ -18,3 +20,8 @@ venv/
 # Local runtime output
 *.log
 results/
+
+# Generated development evidence is archived outside this repository.
+# Restore from docs/audits/artifacts/git_cleanup_archive_20261112/ when needed.
+data/pilot/canonical_pilot20_20261111*/
+data/pilot/source_only_candidates_*.json
