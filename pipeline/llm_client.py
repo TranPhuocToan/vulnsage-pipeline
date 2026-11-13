@@ -401,11 +401,45 @@ class StructuredCallResult:
 
 _VERDICTS = {"PATCHED", "NOT_PATCHED", "NOT_SURE"}
 _LOCAL_VERDICTS = {"CONTRIBUTES_TO_FIX", "NOT_RELATED", "UNCLEAR"}
+_THINK_VERIFY_EXAMPLE_VALUES = {
+    "think": {"Phân tích chi tiết..."},
+    "verify": {"Quá trình kiểm chứng..."},
+}
 
 
 def _strict_string_list(value: Any, field: str) -> None:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{field} must be a list of strings")
+
+
+def assess_think_verify_payload(payload: Any) -> Dict[str, Any]:
+    """Assess P0 reasoning fields without changing the model verdict.
+
+    The P0 prompt contains short JSON example values for ``think`` and
+    ``verify``. A model can copy those examples while still returning a valid
+    verdict schema. This QA check reports missing, empty, and exact-placeholder
+    fields, but never rewrites the response or promotes/demotes the verdict.
+    """
+    reasons: List[str] = []
+    if not isinstance(payload, dict):
+        return {
+            "status": "INVALID_PAYLOAD",
+            "reason_codes": ["THINK_VERIFY_PAYLOAD_NOT_OBJECT"],
+        }
+    for field in ("think", "verify"):
+        value = payload.get(field)
+        if not isinstance(value, str):
+            reasons.append(f"{field.upper()}_MISSING_OR_NOT_STRING")
+            continue
+        normalized = value.strip()
+        if not normalized:
+            reasons.append(f"{field.upper()}_EMPTY")
+        elif normalized in _THINK_VERIFY_EXAMPLE_VALUES[field]:
+            reasons.append(f"{field.upper()}_PLACEHOLDER_EXACT")
+    return {
+        "status": "SUBSTANTIVE" if not reasons else "NON_SUBSTANTIVE",
+        "reason_codes": reasons,
+    }
 
 
 def validate_structured_payload(payload: Any, response_kind: str) -> Dict[str, Any]:

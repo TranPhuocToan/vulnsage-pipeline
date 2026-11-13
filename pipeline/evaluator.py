@@ -108,17 +108,72 @@ def evaluate_positive_only(
     def rate(value: int, denominator: int) -> Optional[float]:
         return round(value / denominator, 6) if denominator else None
 
+    observed_results = [by_id[sample_id] for sample_id in expected_sample_ids if sample_id in by_id]
+    attempts_complete = len(observed_results) == n and all(
+        isinstance(item.get("attempts"), list)
+        and all(isinstance(attempt, dict) for attempt in item["attempts"])
+        for item in observed_results
+    )
+    actual_calls = (
+        sum(len(item["attempts"]) for item in observed_results)
+        if attempts_complete else None
+    )
+    retry_count = None
+    if attempts_complete:
+        retry_count = sum(
+            1
+            for item in observed_results
+            for attempt in item["attempts"]
+            if isinstance(attempt.get("attempt"), int) and attempt["attempt"] > 1
+        )
+
+    token_fields = ("input_tokens", "output_tokens", "total_tokens")
+    token_usage_complete = len(observed_results) == n and all(
+        isinstance(item.get("token_usage"), dict)
+        and item["token_usage"].get("usage_complete") is True
+        and all(type(item["token_usage"].get(field)) is int for field in token_fields)
+        for item in observed_results
+    )
+    token_totals = {
+        field: (
+            sum(item["token_usage"][field] for item in observed_results)
+            if token_usage_complete else None
+        )
+        for field in token_fields
+    }
+    duration_complete = len(observed_results) == n and all(
+        type(item.get("total_attempt_duration_sec")) in {int, float}
+        for item in observed_results
+    )
+    total_duration = (
+        round(sum(float(item["total_attempt_duration_sec"]) for item in observed_results), 9)
+        if duration_complete else None
+    )
+
     return {
         "evaluation_scope": "POSITIVE_ONLY_KNOWN_FIX_COMMIT_POST_STATES",
         "N": n,
+        "completed_samples": counts["C"] + counts["R"] + counts["U"],
         **counts,
         "positive_acceptance_rate": rate(counts["C"], n),
         "false_rejection_rate": rate(counts["R"], n),
         "not_sure_rate": rate(counts["U"], n),
+        "abstention_rate": rate(counts["U"], n),
         "technical_failure_rate": rate(counts["E"], n),
         "coverage": rate(decided, n),
         "selective_accuracy": rate(counts["C"], decided),
         "binary_accuracy_f1_reported": False,
+        "telemetry": {
+            "observed_result_records": len(observed_results),
+            "attempts_complete": attempts_complete,
+            "actual_llm_calls": actual_calls,
+            "retry_count": retry_count,
+            "token_usage_complete": token_usage_complete,
+            **token_totals,
+            "duration_complete": duration_complete,
+            "total_attempt_duration_sec": total_duration,
+            "missing_usage_is_zero": False,
+        },
     }
 
 

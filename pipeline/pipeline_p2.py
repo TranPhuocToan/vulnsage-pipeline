@@ -13,8 +13,8 @@ Nguyên lý:
     | SySeVR                    | P2 (đề tài)                          |
     |---------------------------|---------------------------------------|
     | Candidate generation      | Dòng +/- = điểm neo                  |
-    | Program Slice (AST/CFG)   | LLM truy vết cross-file dependencies  |
-    | Semantic slice (data flow)| LLM liệt kê data dependencies        |
+    | Program Slice (AST/CFG)   | Không triển khai; ngoài phạm vi P2    |
+    | Semantic slice (data flow)| LLM evidence extraction (inspired)   |
     | Vulnerability repr.       | dependency_evidence.json              |
 
 Luồng xử lý (3 bước):
@@ -143,6 +143,7 @@ def process_single_sample_p2(sample: Dict[str, Any]) -> Dict[str, Any]:
     Xử lý một mẫu G3 với Pipeline P2 (3-step SySeVR-inspired).
 
     P2: Local Analysis → Dependency Evidence Extraction → Evidence-Augmented Synthesis.
+    Đây là SySeVR-inspired LLM evidence extraction, không phải static program slicing.
 
     Args:
         sample: Một mẫu G3 đã parse (từ parsed_g3.json).

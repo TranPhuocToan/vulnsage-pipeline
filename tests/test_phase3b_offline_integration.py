@@ -253,6 +253,39 @@ class PositiveOnlyEvaluatorTests(unittest.TestCase):
         with self.assertRaisesRegex(PositiveOnlyEvaluationError, "sample list mismatch"):
             evaluate_positive_only_ablation({"P0": [], "P1": [], "P2": []}, ["x"])
 
+    def test_telemetry_is_aggregated_without_coercing_missing_usage_to_zero(self):
+        complete = [
+            {
+                "sample_id": "a", "execution_status": "COMPLETED", "prediction": "PATCHED",
+                "attempts": [{"attempt": 1}, {"attempt": 2}],
+                "token_usage": {"usage_complete": True, "input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
+                "total_attempt_duration_sec": 1.25,
+            },
+            {
+                "sample_id": "b", "execution_status": "COMPLETED", "prediction": "NOT_SURE",
+                "attempts": [{"attempt": 1}],
+                "token_usage": {"usage_complete": True, "input_tokens": 20, "output_tokens": 3, "total_tokens": 23},
+                "total_attempt_duration_sec": 2.5,
+            },
+        ]
+        telemetry = evaluate_positive_only(complete, ["a", "b"])["telemetry"]
+        self.assertEqual(telemetry["actual_llm_calls"], 3)
+        self.assertEqual(telemetry["retry_count"], 1)
+        self.assertEqual(telemetry["input_tokens"], 30)
+        self.assertEqual(telemetry["total_tokens"], 35)
+        self.assertEqual(telemetry["total_attempt_duration_sec"], 3.75)
+
+        incomplete = json.loads(json.dumps(complete))
+        incomplete[1]["token_usage"] = {
+            "usage_complete": False, "input_tokens": None,
+            "output_tokens": None, "total_tokens": None,
+        }
+        telemetry = evaluate_positive_only(incomplete, ["a", "b"])["telemetry"]
+        self.assertFalse(telemetry["token_usage_complete"])
+        self.assertIsNone(telemetry["input_tokens"])
+        self.assertIsNone(telemetry["total_tokens"])
+        self.assertFalse(telemetry["missing_usage_is_zero"])
+
 
 if __name__ == "__main__":
     unittest.main()

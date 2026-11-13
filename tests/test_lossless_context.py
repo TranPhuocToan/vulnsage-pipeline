@@ -14,7 +14,7 @@ from pipeline.llm_client import StructuredLLMClient
 from pipeline.lossless_context import LosslessContextError, original_modify_section, replay_original_modify_diff
 from pipeline.offline_integration import render_static_prompt_plan, run_canonical_sample
 from pipeline.ollama_transport import OllamaConfig
-from pipeline.pilot_runner import PilotRunnerError, run_approved_pilot
+from pipeline.pilot_runner import PilotRunnerError, run_approved_pilot, validate_official_package_inputs
 from pipeline.run_state import RunStateError
 from tests.test_phase3c3_kaggle_integration import SCHEMA, build_smoke_package
 
@@ -184,7 +184,8 @@ class LosslessContextTests(unittest.TestCase):
                 run_prefix="delta-fixture", git_commit="b" * 40, package_git_commit="a" * 40,
                 model_id="qwen2.5-coder:7b", model_digest="fixture-digest", model_quantization="fixture-Q4",
                 tokenizer_metadata={"id": "fixture", "library": "fixture", "version": "1", "class": "FixtureCounter"},
-                parameters=OllamaConfig().run_parameters(), retry_policy={"max_attempts": 1},
+                parameters=OllamaConfig().run_parameters(),
+                retry_policy={"max_attempts": 1, "retry_delays_sec": []},
                 context_policy=candidate_policy(), exact_token_counter=lambda text: 10,
                 client_factory=lambda pipeline: StructuredLLMClient(mock_payload, max_attempts=1),
             )
@@ -203,6 +204,30 @@ class LosslessContextTests(unittest.TestCase):
             with self.assertRaisesRegex(RunStateError, "RESUME_SPEC_MISMATCH"):
                 run_approved_pilot(**kwargs)
             self.assertEqual(hashes_before, {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in package.iterdir()})
+
+    def test_server_template_overhead_is_reserved_at_exact_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = build_smoke_package(root, git_commit="a" * 40)
+            report = validate_official_package_inputs(
+                package_dir=package,
+                schema_path=SCHEMA,
+                expected_git_commit="a" * 40,
+                model_context_tokens=32_768,
+                reserved_output_tokens=2_048,
+                server_template_overhead_tokens=29,
+                exact_token_counter=lambda text: 30_692,
+            )
+            self.assertEqual(report["exact_token_preflight_status"], "BLOCKED_STATIC_CONTEXT_OVERFLOW")
+            self.assertEqual(report["server_template_overhead_tokens"], 29)
+            with self.assertRaisesRegex(PilotRunnerError, "SERVER_TEMPLATE_OVERHEAD_INVALID"):
+                validate_official_package_inputs(
+                    package_dir=package,
+                    schema_path=SCHEMA,
+                    expected_git_commit="a" * 40,
+                    server_template_overhead_tokens=-1,
+                    exact_token_counter=lambda text: 1,
+                )
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from dataset_validation.qualification import validate_review_decision
+from dataset_validation.qualification import qualify_sample, validate_review_decision
 from pipeline.canonical_adapter import dataset_sha256, load_and_adapt_dataset
 from pipeline.context_policy import FULL_BLOBS, ContextPolicy, prepare_context
 from pipeline.evaluator import evaluate_positive_only_ablation
@@ -19,7 +19,7 @@ from pipeline.offline_integration import prompt_hashes, render_static_prompt_pla
 from pipeline.run_state import RunWorkspace, build_run_spec, hash_files, hash_value
 
 
-PILOT_RUNNER_VERSION = "phase3c3-canonical-pilot-runner-1.0"
+PILOT_RUNNER_VERSION = "phase3d-canonical-pilot-runner-1.1"
 PIPELINES = ("P0", "P1", "P2")
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
@@ -28,13 +28,24 @@ class PilotRunnerError(ValueError):
     pass
 
 
-PACKAGE_FILENAMES = {
+LEGACY_PACKAGE_FILENAMES = {
     "dataset": "canonical_dataset.json",
     "qualification": "qualification_record.json",
     "decision": "review_decision.json",
     "manifest": "official_pilot_manifest.json",
     "receipt": "package_receipt.json",
 }
+
+MULTI_PACKAGE_FILENAMES = {
+    "dataset": "canonical_dataset.json",
+    "qualification": "qualification_records.json",
+    "decision": "review_decisions.json",
+    "manifest": "official_pilot_manifest.json",
+    "receipt": "package_receipt.json",
+}
+
+# Kept for callers that only need the common dataset filename.
+PACKAGE_FILENAMES = LEGACY_PACKAGE_FILENAMES
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, Any]:
@@ -96,8 +107,18 @@ def load_official_package(
 ) -> dict[str, Any]:
     """Validate all five review-gated package artifacts without model calls."""
     package_dir = Path(package_dir)
-    paths = {key: package_dir / name for key, name in PACKAGE_FILENAMES.items()}
-    missing = [name for key, name in PACKAGE_FILENAMES.items() if not paths[key].is_file()]
+    legacy_present = all((package_dir / name).is_file() for name in LEGACY_PACKAGE_FILENAMES.values())
+    multi_present = all((package_dir / name).is_file() for name in MULTI_PACKAGE_FILENAMES.values())
+    if legacy_present and multi_present:
+        raise PilotRunnerError("AMBIGUOUS_PACKAGE_FORMAT")
+    if multi_present:
+        filenames = MULTI_PACKAGE_FILENAMES
+        package_format = "MULTI_SAMPLE_REVIEW_RECORDS_V1"
+    else:
+        filenames = LEGACY_PACKAGE_FILENAMES
+        package_format = "LEGACY_ONE_SAMPLE_V1"
+    paths = {key: package_dir / name for key, name in filenames.items()}
+    missing = [name for key, name in filenames.items() if not paths[key].is_file()]
     if missing:
         raise PilotRunnerError(f"OFFICIAL_PACKAGE_FILES_MISSING:{missing}")
     if not SHA40.fullmatch(expected_git_commit):
@@ -107,64 +128,122 @@ def load_official_package(
     manifest_base = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
     if manifest.get("manifest_sha256") != hash_value(manifest_base):
         raise PilotRunnerError("MANIFEST_SELF_HASH_MISMATCH")
-    if manifest.get("dataset_file") != PACKAGE_FILENAMES["dataset"]:
+    if manifest.get("dataset_file") != filenames["dataset"]:
         raise PilotRunnerError("MANIFEST_DATASET_FILENAME_MISMATCH")
     if manifest.get("git_commit") != expected_git_commit:
         raise PilotRunnerError("MANIFEST_GIT_COMMIT_MISMATCH")
     if manifest.get("schema_sha256") != _sha256_file(Path(schema_path)):
         raise PilotRunnerError("SCHEMA_HASH_MISMATCH")
 
-    qualification = _read_json_object(paths["qualification"], "QUALIFICATION_RECORD")
-    decision = _read_json_object(paths["decision"], "REVIEW_DECISION")
+    qualification_payload = _read_json_object(paths["qualification"], "QUALIFICATION_RECORD")
+    decision_payload = _read_json_object(paths["decision"], "REVIEW_DECISION")
     receipt = _read_json_object(paths["receipt"], "PACKAGE_RECEIPT")
     dataset = _read_json_object(paths["dataset"], "CANONICAL_DATASET")
     raw_samples = dataset.get("samples")
-    if not isinstance(raw_samples, list) or len(raw_samples) != 1:
-        raise PilotRunnerError("ONE_SAMPLE_DATASET_REQUIRED")
-    sample = raw_samples[0]
-    if not isinstance(sample, dict):
-        raise PilotRunnerError("CANONICAL_SAMPLE_INVALID")
-    sample_id = sample.get("sample_id")
-    if manifest.get("ordered_sample_ids") != [sample_id]:
+    if not isinstance(raw_samples, list) or not raw_samples or any(
+        not isinstance(sample, dict) for sample in raw_samples
+    ):
+        raise PilotRunnerError("CANONICAL_SAMPLES_INVALID")
+    sample_ids = [sample.get("sample_id") for sample in raw_samples]
+    if any(not isinstance(sample_id, str) for sample_id in sample_ids):
+        raise PilotRunnerError("CANONICAL_SAMPLE_ID_INVALID")
+    if len(sample_ids) != len(set(sample_ids)):
+        raise PilotRunnerError("DUPLICATE_CANONICAL_SAMPLE_ID")
+    if manifest.get("ordered_sample_ids") != sample_ids:
         raise PilotRunnerError("PACKAGE_SAMPLE_ID_MISMATCH")
 
-    entry = manifest["samples"][0]
-    if qualification.get("sample_id") != sample_id or qualification.get("status") != "READY":
-        raise PilotRunnerError("QUALIFICATION_READY_RECORD_REQUIRED")
-    if qualification.get("input_sample_sha256") != hash_value(sample):
-        raise PilotRunnerError("QUALIFICATION_INPUT_HASH_MISMATCH")
-    if qualification.get("security_correctness_verified") is not False:
-        raise PilotRunnerError("SECURITY_CORRECTNESS_MUST_REMAIN_FALSE")
-    if qualification.get("ground_truth_review_status_unchanged") != "PENDING":
-        raise PilotRunnerError("CANONICAL_GROUND_TRUTH_MUST_REMAIN_PENDING")
-    if sample.get("ground_truth", {}).get("review_status") != "PENDING":
-        raise PilotRunnerError("SOURCE_GROUND_TRUTH_MUST_REMAIN_PENDING")
-    validated_decision = validate_review_decision(decision, str(sample_id))
-    if validated_decision.get("decision") != "APPROVE":
-        raise PilotRunnerError("ATTRIBUTABLE_APPROVE_DECISION_REQUIRED")
+    if package_format == "MULTI_SAMPLE_REVIEW_RECORDS_V1":
+        qualifications = qualification_payload.get("records")
+        decisions = decision_payload.get("decisions")
+        if not isinstance(qualifications, list) or not isinstance(decisions, list):
+            raise PilotRunnerError("MULTI_SAMPLE_REVIEW_RECORDS_REQUIRED")
+    else:
+        if len(raw_samples) != 1:
+            raise PilotRunnerError("ONE_SAMPLE_DATASET_REQUIRED")
+        qualifications = [qualification_payload]
+        decisions = [decision_payload]
+    if len(qualifications) != len(raw_samples) or len(decisions) != len(raw_samples):
+        raise PilotRunnerError("PACKAGE_REVIEW_RECORD_COUNT_MISMATCH")
+    qualification_by_id = {
+        item.get("sample_id"): item for item in qualifications if isinstance(item, dict)
+    }
+    decision_by_id = {item.get("sample_id"): item for item in decisions if isinstance(item, dict)}
+    if set(qualification_by_id) != set(sample_ids) or len(qualification_by_id) != len(qualifications):
+        raise PilotRunnerError("QUALIFICATION_SAMPLE_SET_MISMATCH")
+    if set(decision_by_id) != set(sample_ids) or len(decision_by_id) != len(decisions):
+        raise PilotRunnerError("DECISION_SAMPLE_SET_MISMATCH")
+
+    entries_by_id = {item.get("sample_id"): item for item in manifest["samples"]}
+    validated_decisions = []
+    ordered_qualifications = []
+    for sample in raw_samples:
+        sample_id = sample["sample_id"]
+        qualification = qualification_by_id[sample_id]
+        decision = decision_by_id[sample_id]
+        entry = entries_by_id[sample_id]
+        if qualification.get("status") != "READY":
+            raise PilotRunnerError("QUALIFICATION_READY_RECORD_REQUIRED")
+        if qualification.get("input_sample_sha256") != hash_value(sample):
+            raise PilotRunnerError("QUALIFICATION_INPUT_HASH_MISMATCH")
+        if qualification.get("security_correctness_verified") is not False:
+            raise PilotRunnerError("SECURITY_CORRECTNESS_MUST_REMAIN_FALSE")
+        if qualification.get("ground_truth_review_status_unchanged") != "PENDING":
+            raise PilotRunnerError("CANONICAL_GROUND_TRUTH_MUST_REMAIN_PENDING")
+        if sample.get("ground_truth", {}).get("review_status") != "PENDING":
+            raise PilotRunnerError("SOURCE_GROUND_TRUTH_MUST_REMAIN_PENDING")
+        validated_decision = validate_review_decision(decision, sample_id)
+        if validated_decision.get("decision") != "APPROVE":
+            raise PilotRunnerError("ATTRIBUTABLE_APPROVE_DECISION_REQUIRED")
+        recomputed_qualification = qualify_sample(sample, decision=validated_decision)
+        if recomputed_qualification.get("status") != "READY":
+            raise PilotRunnerError("RECOMPUTED_QUALIFICATION_NOT_READY")
+        if recomputed_qualification != qualification:
+            raise PilotRunnerError("QUALIFICATION_RECORD_RECOMPUTE_MISMATCH")
+        if package_format == "MULTI_SAMPLE_REVIEW_RECORDS_V1":
+            expected_qualification_hash = hash_value(qualification)
+            expected_decision_hash = hash_value(validated_decision)
+        else:
+            expected_qualification_hash = _sha256_file(paths["qualification"])
+            expected_decision_hash = _sha256_file(paths["decision"])
+        if entry.get("qualification_record_sha256") != expected_qualification_hash:
+            raise PilotRunnerError("QUALIFICATION_RECORD_HASH_MISMATCH")
+        if entry.get("review_decision_sha256") != expected_decision_hash:
+            raise PilotRunnerError("REVIEW_DECISION_HASH_MISMATCH")
+        if entry.get("canonical_input_sha256") != qualification.get("input_sample_sha256"):
+            raise PilotRunnerError("MANIFEST_CANONICAL_INPUT_HASH_MISMATCH")
+        ordered_qualifications.append(qualification)
+        validated_decisions.append(validated_decision)
 
     artifact_hashes = {key: _sha256_file(path) for key, path in paths.items()}
-    if entry.get("qualification_record_sha256") != artifact_hashes["qualification"]:
-        raise PilotRunnerError("QUALIFICATION_RECORD_HASH_MISMATCH")
-    if entry.get("review_decision_sha256") != artifact_hashes["decision"]:
-        raise PilotRunnerError("REVIEW_DECISION_HASH_MISMATCH")
-    if entry.get("canonical_input_sha256") != qualification.get("input_sample_sha256"):
-        raise PilotRunnerError("MANIFEST_CANONICAL_INPUT_HASH_MISMATCH")
-    if receipt.get("git_commit") != expected_git_commit or receipt.get("sample_id") != sample_id:
+    if receipt.get("git_commit") != expected_git_commit:
+        raise PilotRunnerError("PACKAGE_RECEIPT_IDENTITY_MISMATCH")
+    if package_format == "MULTI_SAMPLE_REVIEW_RECORDS_V1":
+        if receipt.get("package_format") != package_format or receipt.get("ordered_sample_ids") != sample_ids:
+            raise PilotRunnerError("PACKAGE_RECEIPT_IDENTITY_MISMATCH")
+    elif receipt.get("sample_id") != sample_ids[0]:
         raise PilotRunnerError("PACKAGE_RECEIPT_IDENTITY_MISMATCH")
     if receipt.get("source_dataset_sha256_before") != receipt.get("source_dataset_sha256_after"):
         raise PilotRunnerError("PACKAGE_SOURCE_DATASET_MUTATION_RECORDED")
     receipt_files = receipt.get("files")
     expected_receipt_files = {
-        PACKAGE_FILENAMES["dataset"], PACKAGE_FILENAMES["qualification"],
-        PACKAGE_FILENAMES["decision"], PACKAGE_FILENAMES["manifest"],
+        filenames["dataset"], filenames["qualification"],
+        filenames["decision"], filenames["manifest"],
     }
     if not isinstance(receipt_files, dict) or set(receipt_files) != expected_receipt_files:
         raise PilotRunnerError("PACKAGE_RECEIPT_FILE_SET_MISMATCH")
     for filename, expected_hash in receipt_files.items():
         if _sha256_file(package_dir / filename) != expected_hash:
             raise PilotRunnerError(f"PACKAGE_RECEIPT_HASH_MISMATCH:{filename}")
-    builder_hash = _sha256_file(Path(__file__).resolve().parents[1] / "dataset_validation" / "smoke_package.py")
+    expected_builder_module = (
+        "dataset_validation/pilot_package.py"
+        if package_format == "MULTI_SAMPLE_REVIEW_RECORDS_V1"
+        else "dataset_validation/smoke_package.py"
+    )
+    if manifest.get("builder_module", expected_builder_module) != expected_builder_module:
+        raise PilotRunnerError("PACKAGE_BUILDER_MODULE_MISMATCH")
+    if receipt.get("builder_module", expected_builder_module) != expected_builder_module:
+        raise PilotRunnerError("PACKAGE_BUILDER_MODULE_MISMATCH")
+    builder_hash = _sha256_file(Path(__file__).resolve().parents[1] / expected_builder_module)
     if (
         manifest.get("builder_code_sha256") != builder_hash
         or receipt.get("builder_code_sha256") != builder_hash
@@ -172,10 +251,13 @@ def load_official_package(
         raise PilotRunnerError("PACKAGE_BUILDER_CODE_HASH_MISMATCH")
     return {
         "package_dir": str(package_dir.resolve()),
+        "package_format": package_format,
         "paths": {key: str(path.resolve()) for key, path in paths.items()},
         "manifest": manifest,
-        "qualification": qualification,
-        "decision": validated_decision,
+        "qualification": qualification_payload,
+        "decision": decision_payload,
+        "qualifications": ordered_qualifications,
+        "decisions": validated_decisions,
         "receipt": receipt,
         "artifact_sha256": artifact_hashes,
     }
@@ -261,6 +343,7 @@ def validate_official_package_inputs(
     model_context_tokens: int | None = None,
     reserved_output_tokens: int = 0,
     exact_token_counter: Callable[[str], int] | None = None,
+    server_template_overhead_tokens: int = 0,
 ) -> dict[str, Any]:
     """Validate the complete five-file package, then perform no-LLM context checks."""
     package = load_official_package(
@@ -286,8 +369,10 @@ def validate_official_package_inputs(
             Path(package["paths"]["dataset"]), schema_path=schema_path
         )
         by_id = {item["sample_id"]: item for item in adapted}
+        if type(server_template_overhead_tokens) is not int or server_template_overhead_tokens < 0:
+            raise PilotRunnerError("SERVER_TEMPLATE_OVERHEAD_INVALID")
         exact_limit = (
-            model_context_tokens - reserved_output_tokens
+            model_context_tokens - reserved_output_tokens - server_template_overhead_tokens
             if model_context_tokens is not None else None
         )
         for sample_id in validation["ordered_sample_ids"]:
@@ -334,6 +419,7 @@ def validate_official_package_inputs(
         "exact_static_prompt_token_counts": static_token_counts,
         "runtime_dependent_prompt_stages": runtime_dependent_stages,
         "exact_static_overflow": exact_overflow,
+        "server_template_overhead_tokens": server_template_overhead_tokens,
     }
 
 
@@ -372,6 +458,7 @@ def run_approved_pilot(
     exact_token_counter: Callable[[str], int] | None = None,
     package_git_commit: str | None = None,
     allow_candidate_context_policy: bool = False,
+    server_template_overhead_tokens: int = 0,
 ) -> dict[str, Any]:
     """Run/resume P0/P1/P2 only after the official manifest passes."""
     if not SHA40.fullmatch(git_commit):
@@ -388,6 +475,8 @@ def run_approved_pilot(
         raise PilotRunnerError("TOKENIZER_METADATA_REQUIRED")
     if exact_token_counter is None:
         raise PilotRunnerError("EXACT_TOKEN_COUNTER_REQUIRED")
+    if type(server_template_overhead_tokens) is not int or server_template_overhead_tokens < 0:
+        raise PilotRunnerError("SERVER_TEMPLATE_OVERHEAD_INVALID")
     policy = context_policy or ContextPolicy()
     if policy.code_representation != FULL_BLOBS and allow_candidate_context_policy is not True:
         raise PilotRunnerError("HUMAN_DECISION_CONTEXT_POLICY_REQUIRED")
@@ -401,9 +490,20 @@ def run_approved_pilot(
         parameters.get("num_ctx") != model_context_tokens
         or parameters.get("num_predict") != reserved_output_tokens
         or parameters.get("temperature") != 0.0
+        or parameters.get("seed") != 25550029
         or parameters.get("stream") is not False
     ):
         raise PilotRunnerError("MODEL_PARAMETER_CONTRACT_MISMATCH")
+    retry_attempts = retry_policy.get("max_attempts")
+    retry_delays = retry_policy.get("retry_delays_sec")
+    if (
+        type(retry_attempts) is not int
+        or retry_attempts < 1
+        or not isinstance(retry_delays, list)
+        or len(retry_delays) < max(0, retry_attempts - 1)
+        or any(type(value) not in {int, float} or value < 0 for value in retry_delays)
+    ):
+        raise PilotRunnerError("SHARED_RETRY_POLICY_INVALID")
     validation = validate_official_package_inputs(
         package_dir=package_dir,
         schema_path=schema_path,
@@ -412,6 +512,7 @@ def run_approved_pilot(
         model_context_tokens=model_context_tokens,
         reserved_output_tokens=reserved_output_tokens,
         exact_token_counter=exact_token_counter,
+        server_template_overhead_tokens=server_template_overhead_tokens,
     )
     if validation["status"] != "PASS_NO_LLM":
         raise PilotRunnerError(
@@ -450,6 +551,7 @@ def run_approved_pilot(
                 "digest": model_digest,
                 "quantization": model_quantization,
                 "tokenizer": dict(tokenizer_metadata),
+                "server_template_overhead_tokens": server_template_overhead_tokens,
             },
             output_directory=str((Path(output_root) / "runs" / f"{run_prefix}-{lower}").resolve()),
             resume_policy={
@@ -469,6 +571,13 @@ def run_approved_pilot(
         completed = {item["sample_id"] for item in existing}
         new_count = 0
         client = client_factory(pipeline)
+        retry_delay_count = max(0, retry_attempts - 1)
+        if (
+            client.max_attempts != retry_attempts
+            or list(client.retry_delays[:retry_delay_count])
+            != list(retry_delays[:retry_delay_count])
+        ):
+            raise PilotRunnerError("CLIENT_RETRY_POLICY_MISMATCH")
         for sample_id in ids:
             if sample_id in completed:
                 continue
@@ -480,7 +589,9 @@ def run_approved_pilot(
                 client,
                 policy,
                 token_counter=exact_token_counter,
-                model_input_token_limit=model_context_tokens - reserved_output_tokens,
+                model_input_token_limit=(
+                    model_context_tokens - reserved_output_tokens - server_template_overhead_tokens
+                ),
             )
             workspace.write_result(result)
             workspace.append_event({

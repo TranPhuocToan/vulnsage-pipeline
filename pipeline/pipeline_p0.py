@@ -5,9 +5,10 @@ Lý thuyết áp dụng:
     Think & Verify từ VulnSage paper (Zibaeirad & Vieira, 2025).
 
 Mục đích:
-    Điểm đối chứng (baseline). Tái hiện chính xác chiến lược P0
-    của bài báo gốc: gom toàn bộ code đa tệp thành 1 context block,
-    gửi 1 lần gọi LLM duy nhất.
+    Điểm đối chứng (baseline) thích nghi từ Think & Verify của VulnSage.
+    Nghiên cứu gốc chạy vulnerability detection riêng trên vulnerable/patched
+    states; P0 KLTN đổi nhiệm vụ thành patch verification, nhận before/after/diff,
+    gom toàn bộ code đa tệp thành 1 context block và dùng một lượt suy luận.
 
 Luồng xử lý:
     1. Gom toàn bộ code TẤT CẢ tệp → 1 CODE_BLOCK
@@ -117,7 +118,7 @@ def process_single_sample_p0(sample: Dict[str, Any]) -> Dict[str, Any]:
     """
     Xử lý một mẫu G3 với Pipeline P0 (Think & Verify).
 
-    Tái hiện chiến lược baseline từ VulnSage paper:
+    Thích nghi chiến lược Think & Verify từ VulnSage paper cho patch verification:
     - Gom toàn bộ code đa tệp thành 1 code block
     - 1 lần gọi LLM duy nhất
 

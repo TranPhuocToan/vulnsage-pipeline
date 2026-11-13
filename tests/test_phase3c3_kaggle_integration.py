@@ -233,8 +233,10 @@ class OfficialPilotContractTests(unittest.TestCase):
                     "class": "WhitespaceTokenizer",
                 },
                 parameters=OllamaConfig().run_parameters(),
-                retry_policy={"max_attempts": 1},
-                client_factory=lambda pipeline: StructuredLLMClient(PipelineMock(), max_attempts=1),
+                retry_policy={"max_attempts": 1, "retry_delays_sec": [0.0]},
+                client_factory=lambda pipeline: StructuredLLMClient(
+                    PipelineMock(), max_attempts=1, retry_delays=[0.0]
+                ),
                 model_context_tokens=32768,
                 reserved_output_tokens=2048,
                 exact_token_counter=lambda text: len(text.split()),
@@ -250,6 +252,43 @@ class OfficialPilotContractTests(unittest.TestCase):
             self.assertEqual(spec["model_metadata"]["quantization"], "Q4_K_M")
             self.assertIn("review_decision", spec["artifact_hashes"])
             self.assertFalse(spec["resume_policy"]["overwrite"])
+
+    def test_runner_rejects_seed_or_retry_contract_mismatch_before_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = build_smoke_package(root)
+            common = dict(
+                package_dir=package,
+                schema_path=SCHEMA,
+                output_root=root / "output",
+                run_prefix="contract-fixture",
+                git_commit="a" * 40,
+                model_id="qwen2.5-coder:7b",
+                model_digest="sha256:model-fixture",
+                model_quantization="Q4_K_M",
+                tokenizer_metadata={
+                    "id": "fixture-tokenizer", "library": "fixture",
+                    "version": "1.0", "class": "WhitespaceTokenizer",
+                },
+                client_factory=lambda pipeline: StructuredLLMClient(
+                    lambda prompt: ("{}", {}), max_attempts=1, retry_delays=[0.0]
+                ),
+                model_context_tokens=32768,
+                reserved_output_tokens=2048,
+                exact_token_counter=lambda text: len(text.split()),
+            )
+            bad_seed = dict(OllamaConfig().run_parameters())
+            bad_seed["seed"] = 1
+            with self.assertRaisesRegex(PilotRunnerError, "MODEL_PARAMETER_CONTRACT_MISMATCH"):
+                run_approved_pilot(
+                    **common, parameters=bad_seed,
+                    retry_policy={"max_attempts": 1, "retry_delays_sec": [0.0]},
+                )
+            with self.assertRaisesRegex(PilotRunnerError, "SHARED_RETRY_POLICY_INVALID"):
+                run_approved_pilot(
+                    **common, parameters=OllamaConfig().run_parameters(),
+                    retry_policy={"max_attempts": 2, "retry_delays_sec": []},
+                )
 
     def test_complete_package_contract_rejects_tampering(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -17,7 +17,11 @@ from pipeline.context_policy import (
     enforce_context_limit,
     prepare_context,
 )
-from pipeline.llm_client import StructuredCallResult, StructuredLLMClient
+from pipeline.llm_client import (
+    StructuredCallResult,
+    StructuredLLMClient,
+    assess_think_verify_payload,
+)
 
 
 PROMPT_FILES = {
@@ -225,6 +229,7 @@ def run_canonical_sample(
             if call.status != "OK":
                 return _technical_result("p0", adapted, calls, call.error_message or call.status, context_hashes, pre_call_token_counts)
             prediction = call.parsed["verdict"]
+            think_verify_quality = assess_think_verify_payload(call.parsed)
 
         else:
             local_results: List[Dict[str, Any]] = []
@@ -296,7 +301,7 @@ def run_canonical_sample(
                 return _technical_result(pipeline_id, adapted, calls, final_call.error_message or final_call.status, context_hashes, pre_call_token_counts)
             prediction = final_call.parsed["verdict"]
 
-        return {
+        result = {
             "sample_id": adapted["sample_id"],
             "pipeline": pipeline_id.upper(),
             "execution_status": "COMPLETED",
@@ -313,5 +318,8 @@ def run_canonical_sample(
             "pre_call_token_counts": pre_call_token_counts,
             **_attempt_summary(calls),
         }
+        if pipeline_id == "p0":
+            result["think_verify_quality"] = think_verify_quality
+        return result
     except ContextOverflowError as exc:
         return _technical_result(pipeline_id, adapted, calls, str(exc), context_hashes, pre_call_token_counts)
